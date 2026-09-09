@@ -492,7 +492,7 @@ function onRoomLocalStream(stream) {
 }
 
 // ============================================================
-// Create subscriber – FIXED: no reference to subHandle in onmessage
+// Create subscriber – CORRECTED: handle offer with createAnswer
 // ============================================================
 function createRoomSubscriber(feedId, displayName) {
 	if (subscribers[feedId]) return;
@@ -504,12 +504,23 @@ function createRoomSubscriber(feedId, displayName) {
 		success: function (subHandle) {
 			subscribers[feedId] = { handle: subHandle, display: displayName, element: null };
 
-			// Set up onmessage for this handle – captures subHandle via closure
+			// Set onmessage to handle JSEP offer
 			subHandle.onmessage = function(msg, jsep) {
 				pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
 				if (jsep) {
-					pageLog('Subscriber handling remote JSEP', 'info');
-					subHandle.handleRemoteJsep({ jsep: jsep });
+					pageLog('Subscriber handling remote JSEP (offer) by creating answer', 'info');
+					// Create answer and send it back
+					subHandle.createAnswer({
+						jsep: jsep,
+						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
+						success: function (answerJsep) {
+							pageLog('Answer created for subscriber ' + feedId, 'info');
+							subHandle.send({ message: { request: 'accept' }, jsep: answerJsep });
+						},
+						error: function (error) {
+							pageLog('Create answer error: ' + error, 'error');
+						}
+					});
 				}
 			};
 
