@@ -41,7 +41,7 @@ let els = {};
 let pendingUserList = null;
 let pendingRoomList = null;
 
-pageLog('call.js (fixed) loaded', 'info');
+pageLog('call.js (final) loaded', 'info');
 
 // ============================================================
 // Helpers
@@ -287,7 +287,6 @@ function onRoomMessage(msg, jsep) {
 			showInCallUi();
 			updateHangupButton('room');
 			publishRoomStream(roomHandle);
-			// After joining, fetch existing participants
 			listParticipants();
 			break;
 
@@ -430,7 +429,7 @@ function joinRoom(roomId) {
 }
 
 // ============================================================
-// List participants (to get existing publishers)
+// List participants
 // ============================================================
 function listParticipants() {
 	if (!roomHandle) return;
@@ -492,7 +491,7 @@ function onRoomLocalStream(stream) {
 }
 
 // ============================================================
-// Create subscriber – CORRECTED: handle offer with createAnswer
+// Create subscriber – CORRECTED: start request, not accept
 // ============================================================
 function createRoomSubscriber(feedId, displayName) {
 	if (subscribers[feedId]) return;
@@ -504,18 +503,25 @@ function createRoomSubscriber(feedId, displayName) {
 		success: function (subHandle) {
 			subscribers[feedId] = { handle: subHandle, display: displayName, element: null };
 
-			// Set onmessage to handle JSEP offer
 			subHandle.onmessage = function(msg, jsep) {
 				pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
 				if (jsep) {
 					pageLog('Subscriber handling remote JSEP (offer) by creating answer', 'info');
-					// Create answer and send it back
 					subHandle.createAnswer({
 						jsep: jsep,
 						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
 						success: function (answerJsep) {
 							pageLog('Answer created for subscriber ' + feedId, 'info');
-							subHandle.send({ message: { request: 'accept' }, jsep: answerJsep });
+							subHandle.send({
+								message: {
+									request: 'start',
+									room: currentRoomId,
+									ptype: 'subscriber',
+									feed: feedId,
+									private_id: privateId
+								},
+								jsep: answerJsep
+							});
 						},
 						error: function (error) {
 							pageLog('Create answer error: ' + error, 'error');
@@ -524,7 +530,6 @@ function createRoomSubscriber(feedId, displayName) {
 				}
 			};
 
-			// Send the join request
 			subHandle.send({
 				message: {
 					request: 'join',
@@ -538,7 +543,6 @@ function createRoomSubscriber(feedId, displayName) {
 			});
 		},
 		onremotestream: function (stream) {
-			// This is the remote stream callback
 			const sub = subscribers[feedId];
 			if (!sub) return;
 			pageLog('Remote stream received for ' + feedId, 'info');
@@ -714,7 +718,7 @@ function updateHangupButton(mode) {
 }
 
 // ============================================================
-// Unified list – user list from onCallMessage, room list from success callback
+// Unified list
 // ============================================================
 function refreshList() {
 	pageLog('refreshList()', 'debug');
@@ -790,7 +794,7 @@ function renderUnifiedList() {
 }
 
 // ============================================================
-// Controls (mic, camera, hangup)
+// Controls
 // ============================================================
 function toggleMic() {
 	const handle = isInRoom ? roomHandle : callHandle;
