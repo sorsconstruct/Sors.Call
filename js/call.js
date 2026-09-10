@@ -196,9 +196,11 @@ function attachRoomPlugin() {
 		onmessage: onRoomMessage,
 		onlocalstream: onRoomLocalStream,
 		oncleanup: function () {
-			pageLog('Room cleanup', 'info');
-			leaveRoom(true);
-		}
+             pageLog('Room cleanup', 'info');
+             // Guard: only run the full leave sequence if we are still in a room.
+             // This prevents the recursion triggered by roomHandle.hangup().
+             if (isInRoom) leaveRoom(true);
+        }
 	});
 }
 
@@ -490,119 +492,163 @@ function onRoomLocalStream(stream) {
 	grid.prepend(tile);
 }
 
-// ============================================================
-// Create subscriber – CORRECTED: start request, not accept
-// ============================================================
 function createRoomSubscriber(feedId, displayName) {
-	if (subscribers[feedId]) return;
-	pageLog('Subscribing to ' + feedId, 'info');
+    // Synchronously reserve the slot, so a second call for the same feed
+    // (from another event that arrives a moment later) sees the entry
+    // and returns immediately.
+    if (subscribers[feedId]) {
+        pageLog('Already subscribed (or subscribing) to ' + feedId, 'debug');
+        return;
+    }
+    subscribers[feedId] = {
+        handle: null,
+        display: displayName,
+        element: null,
+        pending: true
+    };
 
-	janus.attach({
-		plugin: 'janus.plugin.videoroom',
-		opaqueId: opaqueId,
-		success: function (subHandle) {
-			subscribers[feedId] = { handle: subHandle, display: displayName, element: null };
+    pageLog('Subscribing to ' + feedId + ' (' + displayName + ')', 'info');
 
-			subHandle.onmessage = function(msg, jsep) {
-				pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
-				if (jsep) {
-					pageLog('Subscriber handling remote JSEP (offer) by creating answer', 'info');
-					subHandle.createAnswer({
-						jsep: jsep,
-						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
-						success: function (answerJsep) {
-							pageLog('Answer created for subscriber ' + feedId, 'info');
-							subHandle.send({
-								message: {
-									request: 'start',
-									room: currentRoomId,
-									ptype: 'subscriber',
-									feed: feedId,
-									private_id: privateId
-								},
-								jsep: answerJsep
-							});
-						},
-						error: function (error) {
-							pageLog('Create answer error: ' + error, 'error');
-						}
-					});
-				}
-			};
+    janus.attach({
+        plugin: 'janus.plugin.videoroom',
+        opaqueId: opaqueId,
+        success: function (subHandle) {
+            const sub = subscribers[feedId];
+            if (!sub) {
+                // Slot was removed while we were attaching (e.g. user left).
+                // Detach immediately and bail out.
+                subHandle.detach({ asyncRequest: false });
+                return;
+            }
+            sub.handle = subHandle;
+            sub.pending = false;
 
-			subHandle.send({
-				message: {
-					request: 'join',
-					room: currentRoomId,
-					ptype: 'subscriber',
-					feed: feedId,
-					private_id: privateId,
-					pin: ROOM_PIN
-				},
-				error: function (error) { pageLog('Subscriber join error: ' + error, 'error'); }
-			});
-		},
-		onremotestream: function (stream) {
-			const sub = subscribers[feedId];
-			if (!sub) return;
-			pageLog('Remote stream received for ' + feedId, 'info');
-			const grid = els.videoGrid;
-			const tile = document.createElement('div');
-			tile.className = 'video-tile';
-			const video = document.createElement('video');
-			video.autoplay = true;
-			video.playsInline = true;
-			video.srcObject = stream;
-			const label = document.createElement('div');
-			label.className = 'tile-label';
-			label.textContent = sub.display || 'Unknown';
-			tile.appendChild(video);
-			tile.appendChild(label);
-			grid.appendChild(tile);
-			sub.element = tile;
-			sub.stream = stream;
-		},
-		oncleanup: function () {
-			pageLog('Subscriber cleanup for ' + feedId, 'info');
-			removeRoomSubscriber(feedId);
-		},
-		error: function (error) {
-			pageLog('Subscriber attach error: ' + error, 'error');
-		}
-	});
+            subHandle.onmessage = function(msg, jsep) {
+                pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
+                if (jsep) {
+                    pageLog('Subscriber handling remote JSEP (offer) by creating answer', 'info');
+                    subHandle.createAnswer({
+                        jsep: jsep,
+                        media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
+                        success: function (answerJsep) {
+                            pageLog('Answer created for subscriber ' + feedId, 'info');
+                            subHandle.send({
+                                message: {
+                                    request: 'start',
+                                    room: currentRoomId,
+                                    ptype: 'subscriber',
+                                    feed: feedId,
+                                    private_id: privateId
+                                },
+                                jsep: answerJsep
+                            });
+                        },
+                        error: function (error) {
+                            pageLog('Create answer error: ' + error, 'error');
+                        }
+                    });
+                }
+            };
+
+            subHandle.send({
+                message: {
+                    request: 'join',
+                    room: currentRoomId,
+                    ptype: 'subscriber',
+                    feed: feedId,
+                    private_id: privateId,
+                    pin: ROOM_PIN
+                },
+                error: function (error) { pageLog('Subscriber join error: ' + error, 'error'); }
+            });
+        },
+        onremotestream: function (stream) {
+            const sub = subscribers[feedId];
+            if (!sub) return;
+
+            // Extra safety: if a tile already exists for this feed, don't create another.
+            if (sub.element) {
+                pageLog('Ignoring duplicate remote stream for ' + feedId, 'warn');
+                return;
+            }
+
+            pageLog('Remote stream received for ' + feedId, 'info');
+            const grid = els.videoGrid;
+            const tile = document.createElement('div');
+            tile.className = 'video-tile';
+            const video = document.createElement('video');
+            video.autoplay = true;
+            video.playsInline = true;
+            video.srcObject = stream;
+            const label = document.createElement('div');
+            label.className = 'tile-label';
+            label.textContent = sub.display || 'Unknown';
+            tile.appendChild(video);
+            tile.appendChild(label);
+            grid.appendChild(tile);
+            sub.element = tile;
+            sub.stream = stream;
+        },
+        oncleanup: function () {
+            pageLog('Subscriber cleanup for ' + feedId, 'info');
+            removeRoomSubscriber(feedId);
+        },
+        error: function (error) {
+            pageLog('Subscriber attach error: ' + error, 'error');
+            // Release the reserved slot so a later retry can happen
+            if (subscribers[feedId] && subscribers[feedId].pending) {
+                delete subscribers[feedId];
+            }
+        }
+    });
 }
 
 function removeRoomSubscriber(feedId) {
-	const sub = subscribers[feedId];
-	if (!sub) return;
-	if (sub.element && sub.element.parentNode) {
-		sub.element.parentNode.removeChild(sub.element);
-	}
-	if (sub.handle) {
-		sub.handle.detach({ asyncRequest: false });
-	}
-	delete subscribers[feedId];
+    const sub = subscribers[feedId];
+    if (!sub) return;
+
+    // Delete FIRST so that when sub.handle.detach() fires the subscriber's
+    // oncleanup, the re-entrant call sees nothing and returns immediately.
+    delete subscribers[feedId];
+
+    if (sub.element && sub.element.parentNode) {
+        sub.element.parentNode.removeChild(sub.element);
+    }
+    if (sub.handle) {
+        sub.handle.detach({ asyncRequest: false });
+    }
 }
 
 function leaveRoom(silent) {
-	if (!isInRoom) return;
-	pageLog('Leaving room', 'info');
-	isInRoom = false;
-	if (roomHandle) {
-		roomHandle.send({ message: { request: 'unpublish' } });
-		roomHandle.hangup();
-	}
-	for (let feedId in subscribers) {
-		removeRoomSubscriber(feedId);
-	}
-	const localTile = document.getElementById('localTileRoom');
-	if (localTile) localTile.remove();
-	els.videoGrid.classList.add('d-none');
-	els.videoGrid.innerHTML = '';
-	currentRoomId = null;
-	hide(els.inCallBar);
-	setStatus('Ready', 'bg-success');
-	if (!silent) pageLog('Left room', 'info');
+    if (!isInRoom) return;
+    isInRoom = false;               // <-- flip FIRST, before any Janus calls
+    pageLog('Leaving room', 'info');
+
+    if (roomHandle) {
+        roomHandle.send({ message: { request: 'unpublish' } });
+        roomHandle.hangup();        // oncleanup will see isInRoom === false
+    }
+
+    // Remove every subscriber tile/handle
+    Object.keys(subscribers).forEach(function (feedId) {
+        removeRoomSubscriber(feedId);
+    });
+
+    // Reset UI
+    const localTile = document.getElementById('localTileRoom');
+    if (localTile) localTile.remove();
+    els.videoGrid.classList.add('d-none');
+    els.videoGrid.innerHTML = '';
+    hide(els.videoStage);
+    hide(els.inCallBar);
+    currentRoomId = null;
+    myFeedId = null;
+    privateId = null;
+    myStream = null;
+
+    setStatus(myUsername ? ('Registered as ' + myUsername) : 'Ready', 'bg-success');
+    refreshList();
+    if (!silent) pageLog('Left room', 'info');
 }
 
 // ============================================================
