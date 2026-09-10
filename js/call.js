@@ -33,15 +33,13 @@ let myDisplayName = null;
 const opaqueId = 'dual-' + Janus.randomString(12);
 let listRefreshInterval = null;
 
-let ringAudio = null;
-let ringbackAudio = null;
 const modals = {};
 let els = {};
 
 let pendingUserList = null;
 let pendingRoomList = null;
 
-pageLog('call.js (final) loaded', 'info');
+pageLog('call.js loaded', 'info');
 
 // ============================================================
 // Helpers
@@ -62,15 +60,225 @@ function setStatus(text, variant) {
 	els.statusBadge.className = 'badge ' + (variant || 'bg-secondary');
 }
 
-function playRing() { if (ringAudio) { ringAudio.currentTime = 0; ringAudio.play().catch(()=>{}); } }
-function stopRing() { if (ringAudio) { ringAudio.pause(); ringAudio.currentTime = 0; } }
-function playRingback() { if (ringbackAudio) { ringbackAudio.currentTime = 0; ringbackAudio.play().catch(()=>{}); } }
-function stopRingback() { if (ringbackAudio) { ringbackAudio.pause(); ringbackAudio.currentTime = 0; } }
-
 function notifyIncomingCall(fromUser) {
 	if (!('Notification' in window) || Notification.permission !== 'granted') return;
 	try { new Notification('Incoming call', { body: fromUser + ' is calling you' }); } catch(e) {}
 }
+
+// ============================================================
+// Sound Engine — hybrid (mp3 first, Web Audio fallback)
+// Supports multiple named profiles so we can distinguish
+// different sounds (incoming ring, ringback, etc.) by name.
+// ============================================================
+const SOUND_PROFILES = {
+	// Long ring + vibration for an incoming call
+	incoming: {
+		mp3: 'assets/ring.mp3',
+		vibrate: [1000, 1000, 1000, 1000, 1000, 1000],
+		webAudio: {
+			freqs: [440, 480],
+			burstMs: 2000,
+			gapMs: 4000,
+			gain: 0.15
+		}
+	},
+	// Softer, identical cadence for outgoing ringback
+	ringback: {
+		mp3: 'assets/ringBack.mp3',
+		vibrate: null,
+		webAudio: {
+			freqs: [440, 480],
+			burstMs: 2000,
+			gapMs: 4000,
+			gain: 0.10
+		}
+	},
+	// Short blip when another user joins the room
+	userJoined: {
+		mp3: null,
+		vibrate: null,
+		webAudio: {
+			freqs: [880],
+			burstMs: 150,
+			gapMs: 0,
+			gain: 0.10
+		}
+	},
+	// Two-tone chime when a call ends
+	hangup: {
+		mp3: null,
+		vibrate: null,
+		webAudio: {
+			freqs: [600, 400],
+			burstMs: 200,
+			gapMs: 100,
+			gain: 0.12,
+			repeatBursts: 2
+		}
+	}
+};
+
+const SoundEngine = (function () {
+	const audios = {};      // name -> HTMLAudioElement
+	const active = {};      // name -> { intervalId, oscillators }
+	let ctx = null;
+	let warmedUp = false;
+
+	function getContext() {
+		if (ctx) return ctx;
+		const Ctx = window.AudioContext || window.webkitAudioContext;
+		if (!Ctx) return null;
+		try { ctx = new Ctx(); } catch (e) { ctx = null; }
+		return ctx;
+	}
+
+	function prepare() {
+		Object.keys(SOUND_PROFILES).forEach(function (name) {
+			const p = SOUND_PROFILES[name];
+			if (!p.mp3) return;
+			const a = new Audio(p.mp3);
+			a.preload = 'auto';
+			a.loop = true;
+			a.volume = 1.0;
+			audios[name] = a;
+		});
+		getContext();
+		pageLog('SoundEngine prepared', 'debug');
+	}
+
+	function warmUp() {
+		if (warmedUp) return;
+		warmedUp = true;
+
+		const c = getContext();
+		if (c && c.state === 'suspended') c.resume().catch(function () {});
+
+		Object.keys(audios).forEach(function (name) {
+			const a = audios[name];
+			const prevMuted = a.muted;
+			a.muted = true;
+			const p = a.play();
+			const done = function () {
+				setTimeout(function () {
+					try { a.pause(); a.currentTime = 0; } catch (e) {}
+					a.muted = prevMuted;
+				}, 30);
+			};
+			if (p && p.then) p.then(done).catch(function () { a.muted = prevMuted; });
+			else done();
+		});
+		pageLog('SoundEngine warmed up on first gesture', 'debug');
+	}
+
+	function play(name) {
+		const profile = SOUND_PROFILES[name];
+		if (!profile) { pageLog('Unknown sound: ' + name, 'warn'); return; }
+		// Stop any previous instance of this same sound first
+		stop(name);
+
+		// Try the mp3 first
+		if (profile.mp3 && audios[name]) {
+			const a = audios[name];
+			a.currentTime = 0;
+			const p = a.play();
+			if (p && p.then) {
+				p.then(function () {
+					pageLog('Sound "' + name + '" (mp3) playing', 'debug');
+				}).catch(function (e) {
+					pageLog('Sound "' + name + '" mp3 blocked (' + e.message + ') – using Web Audio', 'warn');
+					startWebAudio(name, profile);
+				});
+			} else {
+				pageLog('Sound "' + name + '" (mp3, legacy play)', 'debug');
+			}
+		} else {
+			startWebAudio(name, profile);
+		}
+
+		if (profile.vibrate && navigator.vibrate) {
+			try { navigator.vibrate(profile.vibrate); } catch (e) {}
+		}
+	}
+
+	function stop(name) {
+		if (audios[name]) {
+			try { audios[name].pause(); audios[name].currentTime = 0; } catch (e) {}
+		}
+		const slot = active[name];
+		if (slot) {
+			if (slot.intervalId != null) { clearInterval(slot.intervalId); slot.intervalId = null; }
+			if (slot.oscillators) {
+				slot.oscillators.forEach(function (osc) { try { osc.stop(); } catch (e) {} });
+				slot.oscillators = [];
+			}
+			delete active[name];
+		}
+		if (SOUND_PROFILES[name] && SOUND_PROFILES[name].vibrate && navigator.vibrate) {
+			try { navigator.vibrate(0); } catch (e) {}
+		}
+	}
+
+	function stopAll() {
+		Object.keys(SOUND_PROFILES).forEach(stop);
+	}
+
+	function startWebAudio(name, profile) {
+		const c = getContext();
+		if (!c) { pageLog('No Web Audio – cannot play "' + name + '"', 'warn'); return; }
+		if (c.state === 'suspended') c.resume().catch(function () {});
+
+		const spec = profile.webAudio || { freqs: [440], burstMs: 300, gapMs: 0, gain: 0.12 };
+		const slot = active[name] = { intervalId: null, oscillators: [] };
+
+		function burst() {
+			const now = c.currentTime;
+			const seconds = spec.burstMs / 1000;
+			const repeat = spec.repeatBursts || 1;
+			const gap = (spec.gapMs || 0) / 1000;
+
+			for (let i = 0; i < repeat; i++) {
+				const t0 = now + i * (seconds + gap);
+				spec.freqs.forEach(function (freq) {
+					const osc = c.createOscillator();
+					const g = c.createGain();
+					osc.type = 'sine';
+					osc.frequency.value = freq;
+					g.gain.setValueAtTime(0.0001, t0);
+					g.gain.linearRampToValueAtTime(spec.gain, t0 + 0.05);
+					g.gain.setValueAtTime(spec.gain, t0 + Math.max(0.06, seconds - 0.05));
+					g.gain.linearRampToValueAtTime(0.0001, t0 + seconds);
+					osc.connect(g).connect(c.destination);
+					osc.start(t0);
+					osc.stop(t0 + seconds + 0.05);
+					slot.oscillators.push(osc);
+					osc.onended = function () {
+						const idx = slot.oscillators.indexOf(osc);
+						if (idx > -1) slot.oscillators.splice(idx, 1);
+					};
+				});
+			}
+		}
+
+		burst();
+		if (spec.gapMs > 0) {
+			slot.intervalId = setInterval(burst, spec.burstMs + spec.gapMs);
+		}
+	}
+
+	// Silent warm-up on the first user gesture anywhere in the page.
+	['click', 'touchstart', 'keydown'].forEach(function (ev) {
+		document.addEventListener(ev, warmUp, { capture: true, passive: true });
+	});
+
+	return { prepare: prepare, play: play, stop: stop, stopAll: stopAll };
+})();
+
+// Backward-compatible shims so the rest of the file can keep
+// calling playRing()/stopRing()/playRingback()/stopRingback().
+function playRing()      { SoundEngine.play('incoming'); }
+function stopRing()      { SoundEngine.stop('incoming'); }
+function playRingback()  { SoundEngine.play('ringback'); }
+function stopRingback()  { SoundEngine.stop('ringback'); }
 
 // ============================================================
 // Janus logging hook
@@ -196,11 +404,11 @@ function attachRoomPlugin() {
 		onmessage: onRoomMessage,
 		onlocalstream: onRoomLocalStream,
 		oncleanup: function () {
-             pageLog('Room cleanup', 'info');
-             // Guard: only run the full leave sequence if we are still in a room.
-             // This prevents the recursion triggered by roomHandle.hangup().
-             if (isInRoom) leaveRoom(true);
-        }
+			pageLog('Room cleanup', 'info');
+			// Guard: only run the full leave sequence if we are still in a room.
+			// This prevents the recursion triggered by roomHandle.hangup().
+			if (isInRoom) leaveRoom(true);
+		}
 	});
 }
 
@@ -305,6 +513,7 @@ function onRoomMessage(msg, jsep) {
 				const pub = msg['published'];
 				if (pub['id'] !== myFeedId) {
 					createRoomSubscriber(pub['id'], pub['display']);
+					SoundEngine.play('userJoined');
 				}
 			}
 			if (msg['unpublished']) {
@@ -492,163 +701,161 @@ function onRoomLocalStream(stream) {
 	grid.prepend(tile);
 }
 
+// ============================================================
+// Subscriber creation — synchronously reserves the slot so
+// two events for the same feed cannot create duplicate tiles.
+// ============================================================
 function createRoomSubscriber(feedId, displayName) {
-    // Synchronously reserve the slot, so a second call for the same feed
-    // (from another event that arrives a moment later) sees the entry
-    // and returns immediately.
-    if (subscribers[feedId]) {
-        pageLog('Already subscribed (or subscribing) to ' + feedId, 'debug');
-        return;
-    }
-    subscribers[feedId] = {
-        handle: null,
-        display: displayName,
-        element: null,
-        pending: true
-    };
+	if (subscribers[feedId]) {
+		pageLog('Already subscribed (or subscribing) to ' + feedId, 'debug');
+		return;
+	}
+	subscribers[feedId] = {
+		handle: null,
+		display: displayName,
+		element: null,
+		pending: true
+	};
 
-    pageLog('Subscribing to ' + feedId + ' (' + displayName + ')', 'info');
+	pageLog('Subscribing to ' + feedId + ' (' + displayName + ')', 'info');
 
-    janus.attach({
-        plugin: 'janus.plugin.videoroom',
-        opaqueId: opaqueId,
-        success: function (subHandle) {
-            const sub = subscribers[feedId];
-            if (!sub) {
-                // Slot was removed while we were attaching (e.g. user left).
-                // Detach immediately and bail out.
-                subHandle.detach({ asyncRequest: false });
-                return;
-            }
-            sub.handle = subHandle;
-            sub.pending = false;
+	janus.attach({
+		plugin: 'janus.plugin.videoroom',
+		opaqueId: opaqueId,
+		success: function (subHandle) {
+			const sub = subscribers[feedId];
+			if (!sub) {
+				subHandle.detach({ asyncRequest: false });
+				return;
+			}
+			sub.handle = subHandle;
+			sub.pending = false;
 
-            subHandle.onmessage = function(msg, jsep) {
-                pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
-                if (jsep) {
-                    pageLog('Subscriber handling remote JSEP (offer) by creating answer', 'info');
-                    subHandle.createAnswer({
-                        jsep: jsep,
-                        media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
-                        success: function (answerJsep) {
-                            pageLog('Answer created for subscriber ' + feedId, 'info');
-                            subHandle.send({
-                                message: {
-                                    request: 'start',
-                                    room: currentRoomId,
-                                    ptype: 'subscriber',
-                                    feed: feedId,
-                                    private_id: privateId
-                                },
-                                jsep: answerJsep
-                            });
-                        },
-                        error: function (error) {
-                            pageLog('Create answer error: ' + error, 'error');
-                        }
-                    });
-                }
-            };
+			subHandle.onmessage = function(msg, jsep) {
+				pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
+				if (jsep) {
+					pageLog('Subscriber handling remote JSEP (offer) by creating answer', 'info');
+					subHandle.createAnswer({
+						jsep: jsep,
+						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
+						success: function (answerJsep) {
+							pageLog('Answer created for subscriber ' + feedId, 'info');
+							subHandle.send({
+								message: {
+									request: 'start',
+									room: currentRoomId,
+									ptype: 'subscriber',
+									feed: feedId,
+									private_id: privateId
+								},
+								jsep: answerJsep
+							});
+						},
+						error: function (error) {
+							pageLog('Create answer error: ' + error, 'error');
+						}
+					});
+				}
+			};
 
-            subHandle.send({
-                message: {
-                    request: 'join',
-                    room: currentRoomId,
-                    ptype: 'subscriber',
-                    feed: feedId,
-                    private_id: privateId,
-                    pin: ROOM_PIN
-                },
-                error: function (error) { pageLog('Subscriber join error: ' + error, 'error'); }
-            });
-        },
-        onremotestream: function (stream) {
-            const sub = subscribers[feedId];
-            if (!sub) return;
+			subHandle.send({
+				message: {
+					request: 'join',
+					room: currentRoomId,
+					ptype: 'subscriber',
+					feed: feedId,
+					private_id: privateId,
+					pin: ROOM_PIN
+				},
+				error: function (error) { pageLog('Subscriber join error: ' + error, 'error'); }
+			});
+		},
+		onremotestream: function (stream) {
+			const sub = subscribers[feedId];
+			if (!sub) return;
 
-            // Extra safety: if a tile already exists for this feed, don't create another.
-            if (sub.element) {
-                pageLog('Ignoring duplicate remote stream for ' + feedId, 'warn');
-                return;
-            }
+			if (sub.element) {
+				pageLog('Ignoring duplicate remote stream for ' + feedId, 'warn');
+				return;
+			}
 
-            pageLog('Remote stream received for ' + feedId, 'info');
-            const grid = els.videoGrid;
-            const tile = document.createElement('div');
-            tile.className = 'video-tile';
-            const video = document.createElement('video');
-            video.autoplay = true;
-            video.playsInline = true;
-            video.srcObject = stream;
-            const label = document.createElement('div');
-            label.className = 'tile-label';
-            label.textContent = sub.display || 'Unknown';
-            tile.appendChild(video);
-            tile.appendChild(label);
-            grid.appendChild(tile);
-            sub.element = tile;
-            sub.stream = stream;
-        },
-        oncleanup: function () {
-            pageLog('Subscriber cleanup for ' + feedId, 'info');
-            removeRoomSubscriber(feedId);
-        },
-        error: function (error) {
-            pageLog('Subscriber attach error: ' + error, 'error');
-            // Release the reserved slot so a later retry can happen
-            if (subscribers[feedId] && subscribers[feedId].pending) {
-                delete subscribers[feedId];
-            }
-        }
-    });
+			pageLog('Remote stream received for ' + feedId, 'info');
+			const grid = els.videoGrid;
+			const tile = document.createElement('div');
+			tile.className = 'video-tile';
+			const video = document.createElement('video');
+			video.autoplay = true;
+			video.playsInline = true;
+			video.srcObject = stream;
+			const label = document.createElement('div');
+			label.className = 'tile-label';
+			label.textContent = sub.display || 'Unknown';
+			tile.appendChild(video);
+			tile.appendChild(label);
+			grid.appendChild(tile);
+			sub.element = tile;
+			sub.stream = stream;
+		},
+		oncleanup: function () {
+			pageLog('Subscriber cleanup for ' + feedId, 'info');
+			removeRoomSubscriber(feedId);
+		},
+		error: function (error) {
+			pageLog('Subscriber attach error: ' + error, 'error');
+			if (subscribers[feedId] && subscribers[feedId].pending) {
+				delete subscribers[feedId];
+			}
+		}
+	});
 }
 
 function removeRoomSubscriber(feedId) {
-    const sub = subscribers[feedId];
-    if (!sub) return;
+	const sub = subscribers[feedId];
+	if (!sub) return;
 
-    // Delete FIRST so that when sub.handle.detach() fires the subscriber's
-    // oncleanup, the re-entrant call sees nothing and returns immediately.
-    delete subscribers[feedId];
+	// Delete FIRST so that when sub.handle.detach() fires the subscriber's
+	// oncleanup, the re-entrant call sees nothing and returns immediately.
+	delete subscribers[feedId];
 
-    if (sub.element && sub.element.parentNode) {
-        sub.element.parentNode.removeChild(sub.element);
-    }
-    if (sub.handle) {
-        sub.handle.detach({ asyncRequest: false });
-    }
+	if (sub.element && sub.element.parentNode) {
+		sub.element.parentNode.removeChild(sub.element);
+	}
+	if (sub.handle) {
+		sub.handle.detach({ asyncRequest: false });
+	}
 }
 
+// ============================================================
+// Leave room — isInRoom flipped FIRST to avoid recursion
+// ============================================================
 function leaveRoom(silent) {
-    if (!isInRoom) return;
-    isInRoom = false;               // <-- flip FIRST, before any Janus calls
-    pageLog('Leaving room', 'info');
+	if (!isInRoom) return;
+	isInRoom = false;
+	pageLog('Leaving room', 'info');
 
-    if (roomHandle) {
-        roomHandle.send({ message: { request: 'unpublish' } });
-        roomHandle.hangup();        // oncleanup will see isInRoom === false
-    }
+	if (roomHandle) {
+		roomHandle.send({ message: { request: 'unpublish' } });
+		roomHandle.hangup();
+	}
 
-    // Remove every subscriber tile/handle
-    Object.keys(subscribers).forEach(function (feedId) {
-        removeRoomSubscriber(feedId);
-    });
+	Object.keys(subscribers).forEach(function (feedId) {
+		removeRoomSubscriber(feedId);
+	});
 
-    // Reset UI
-    const localTile = document.getElementById('localTileRoom');
-    if (localTile) localTile.remove();
-    els.videoGrid.classList.add('d-none');
-    els.videoGrid.innerHTML = '';
-    hide(els.videoStage);
-    hide(els.inCallBar);
-    currentRoomId = null;
-    myFeedId = null;
-    privateId = null;
-    myStream = null;
+	const localTile = document.getElementById('localTileRoom');
+	if (localTile) localTile.remove();
+	els.videoGrid.classList.add('d-none');
+	els.videoGrid.innerHTML = '';
+	hide(els.videoStage);
+	hide(els.inCallBar);
+	currentRoomId = null;
+	myFeedId = null;
+	privateId = null;
+	myStream = null;
 
-    setStatus(myUsername ? ('Registered as ' + myUsername) : 'Ready', 'bg-success');
-    refreshList();
-    if (!silent) pageLog('Left room', 'info');
+	setStatus(myUsername ? ('Registered as ' + myUsername) : 'Ready', 'bg-success');
+	refreshList();
+	if (!silent) pageLog('Left room', 'info');
 }
 
 // ============================================================
@@ -714,6 +921,7 @@ function hangupCall() {
 	if (isInCall) {
 		callHandle.send({ message: { request: 'hangup' } });
 		callHandle.hangup();
+		SoundEngine.play('hangup');
 		onCallEnded();
 	}
 }
@@ -922,10 +1130,8 @@ document.addEventListener('DOMContentLoaded', function () {
 		pageLog('Bootstrap JS missing', 'error');
 	}
 
-	ringAudio = new Audio('res/sip_sound.mp3');
-	ringAudio.loop = true;
-	ringbackAudio = new Audio('res/ringback4.mp3');
-	ringbackAudio.loop = true;
+	// Prepare the sound engine (loads mp3 elements, creates AudioContext).
+	SoundEngine.prepare();
 
 	if ('Notification' in window && Notification.permission === 'default') {
 		Notification.requestPermission();
