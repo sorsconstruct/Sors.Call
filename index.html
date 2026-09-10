@@ -35,23 +35,24 @@
 <script>
 	// pageLog: shows only errors, and reveals the panel on error
 	function pageLog(message, level) {
-		var panel = document.getElementById('logPanel');
-		var body = document.getElementById('logBody');
-		var time = new Date().toLocaleTimeString();
-		var line = document.createElement('div');
-		line.className = 'log-line log-' + (level || 'info');
-		line.textContent = '[' + time + '] ' + message;
-		if (body) { body.appendChild(line); body.scrollTop = body.scrollHeight; }
-		if (level === 'error') {
-			console.error(message);
-			// Show the log panel when an error occurs
-			if (panel) panel.classList.remove('hidden');
-		} else if (level === 'warn') {
-			console.warn(message);
-		} else {
-			console.log(message);
-		}
-	}
+    var panel = document.getElementById('logPanel');
+    var body = document.getElementById('logBody');
+    var time = new Date().toLocaleTimeString();
+    var line = document.createElement('div');
+    line.className = 'log-line log-' + (level || 'info');
+    line.textContent = '[' + time + '] ' + message;
+    if (body) { body.appendChild(line); body.scrollTop = body.scrollHeight; }
+
+    if (level === 'error') {
+        console.error(message);
+        if (panel) panel.classList.remove('hidden');
+        document.body.classList.add('has-log');
+    } else if (level === 'warn') {
+        console.warn(message);
+    } else {
+        console.log(message);
+    }
+}
 	window.addEventListener('error', function (e) {
 		pageLog('Uncaught error: ' + (e.message || e) + (e.filename ? (' @ ' + e.filename.split('/').pop() + ':' + e.lineno) : ''), 'error');
 	}, true);
@@ -64,11 +65,12 @@
 			var text = document.getElementById('logBody').innerText;
 			if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { pageLog('Log copied', 'info'); });
 		});
+		
 		document.getElementById('logClearBtn').addEventListener('click', function () {
-			document.getElementById('logBody').innerHTML = '';
-			// Hide the panel again after clearing
-			document.getElementById('logPanel').classList.add('hidden');
-		});
+            document.getElementById('logBody').innerHTML = '';
+            document.getElementById('logPanel').classList.add('hidden');
+            document.body.classList.remove('has-log');
+         });
 	});
 	pageLog('Page script started', 'info');
 </script>
