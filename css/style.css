@@ -1,3 +1,13 @@
+/* Reserve bottom space ONLY when the debug panel is visible */
+body.has-log { padding-bottom: 220px; }
+
+/* On small screens use a shorter log panel */
+@media (max-width: 575.98px) {
+    .log-panel { height: 140px; }
+    body.has-log { padding-bottom: 160px; }
+}
+
+
 :root {
 	--brand-green: #4db966;
 	--brand-navy: #0c2438;
@@ -106,13 +116,21 @@ body {
 
 /* ---- Video grid (room) ---- */
 .video-grid {
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-	gap: 8px;
-	background: #000;
-	border-radius: 0.75rem;
-	padding: 8px;
-	min-height: 200px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+    background: #000;
+    border-radius: 0.75rem;
+    padding: 8px;
+    min-height: 200px;
+}
+@media (max-width: 575.98px) {
+    .video-grid {
+        grid-template-columns: 1fr;    /* one tile per row on phones */
+        gap: 6px;
+        padding: 6px;
+    }
+    .video-grid .video-tile { aspect-ratio: 16 / 9; }
 }
 .video-grid .video-tile {
 	position: relative;
@@ -203,9 +221,12 @@ body {
 }
 
 /* ---- Debug log panel ---- */
+/*
 main {
 	padding-bottom: 220px;
 }
+*/
+
 .log-panel {
 	position: fixed;
 	left: 0;
