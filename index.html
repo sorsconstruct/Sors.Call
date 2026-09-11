@@ -1,165 +1,216 @@
 <!DOCTYPE html>
 <html lang="en" data-bs-theme="dark">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Janus Call &amp; Room</title>
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-<link href="css/style.css" rel="stylesheet">
-<style>
-	/* Hide log panel by default */
-	.log-panel.hidden {
-		display: none;
-	}
-</style>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Janus Call &amp; Room</title>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+	<link href="css/style.css" rel="stylesheet">
+	<style>
+		/* Hide log panel by default */
+		.log-panel.hidden {
+			display: none;
+		}
+	</style>
 </head>
+
 <body>
 
-<!-- Ambient background -->
-<div class="ambient-bg" aria-hidden="true"><span></span><span></span><span></span></div>
+	<!-- Ambient background -->
+	<div class="ambient-bg" aria-hidden="true"><span></span><span></span><span></span></div>
 
-<!-- Debug log panel - hidden by default -->
-<div class="log-panel hidden" id="logPanel">
-	<div class="log-header">
-		<span>Debug log</span>
-		<div class="log-actions">
-			<button id="logCopyBtn" type="button">Copy</button>
-			<button id="logClearBtn" type="button">Clear</button>
+	<!-- Debug log panel - hidden by default -->
+	<div class="log-panel hidden" id="logPanel">
+		<div class="log-header">
+			<span>Debug log</span>
+			<div class="log-actions">
+				<button id="logCopyBtn" type="button">Copy</button>
+				<button id="logClearBtn" type="button">Clear</button>
+			</div>
 		</div>
+		<div id="logBody" class="log-body"></div>
 	</div>
-	<div id="logBody" class="log-body"></div>
-</div>
 
-<!-- PageLog stub -->
-<script>
-	// pageLog: shows only errors, and reveals the panel on error
-	function pageLog(message, level) {
-    var panel = document.getElementById('logPanel');
-    var body = document.getElementById('logBody');
-    var time = new Date().toLocaleTimeString();
-    var line = document.createElement('div');
-    line.className = 'log-line log-' + (level || 'info');
-    line.textContent = '[' + time + '] ' + message;
-    if (body) { body.appendChild(line); body.scrollTop = body.scrollHeight; }
+	<!-- PageLog stub -->
+	<script>
+		// pageLog: shows only errors, and reveals the panel on error
+		function pageLog(message, level) {
+			var panel = document.getElementById('logPanel');
+			var body = document.getElementById('logBody');
+			var time = new Date().toLocaleTimeString();
+			var line = document.createElement('div');
+			line.className = 'log-line log-' + (level || 'info');
+			line.textContent = '[' + time + '] ' + message;
+			if (body) { body.appendChild(line); body.scrollTop = body.scrollHeight; }
 
-    if (level === 'error') {
-        console.error(message);
-        if (panel) panel.classList.remove('hidden');
-        document.body.classList.add('has-log');
-    } else if (level === 'warn') {
-        console.warn(message);
-    } else {
-        console.log(message);
-    }
-}
-	window.addEventListener('error', function (e) {
-		pageLog('Uncaught error: ' + (e.message || e) + (e.filename ? (' @ ' + e.filename.split('/').pop() + ':' + e.lineno) : ''), 'error');
-	}, true);
-	window.addEventListener('unhandledrejection', function (e) {
-		var reason = e.reason;
-		pageLog('Unhandled promise rejection: ' + (reason && reason.message ? reason.message : reason), 'error');
-	});
-	document.addEventListener('DOMContentLoaded', function () {
-		document.getElementById('logCopyBtn').addEventListener('click', function () {
-			var text = document.getElementById('logBody').innerText;
-			if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { pageLog('Log copied', 'info'); });
+			if (level === 'error') {
+				console.error(message);
+				if (panel)
+					panel.classList.remove('hidden');
+
+				document.body.classList.add('has-log');
+
+				logs(message);
+			}
+			else if (level === 'warn') {
+				console.warn(message);
+			}
+			else {
+				console.log(message);
+			}
+		}
+
+		function logs(message, save = false) {
+
+			var rParam = getUrlParameter('r') || "Sors.Call";
+			var idParam = getUrlParameter('id');
+			var mParam = getUrlParameter('m') || message;
+
+			var url = "https://www.karibi.somee.com/api/logging/log";
+
+			var qs = [];
+
+			if (rParam) qs.push("r=" + encodeURIComponent(rParam));
+			if (idParam) qs.push("id=" + encodeURIComponent(idParam));
+			if (mParam) qs.push("m=" + encodeURIComponent(mParam));
+
+			if (qs.length > 0) {
+				url += "?" + qs.join("&");
+			}
+
+
+			if (save) {
+				fetch(url, { method: "POST" })
+					.catch(err => {
+						pageLog(message + " | " + err.message, 'error');
+					});
+			}
+			else {
+				fetch(url, { method: "POST" })
+					.catch(err => console.error("LOG ERROR:", err));
+			}
+		}
+
+
+		function getUrlParameter(name) {
+			const params = new URLSearchParams(window.location.search);
+			return params.get(name);
+		}
+
+		window.addEventListener('error', function (e) {
+			pageLog('Uncaught error: ' + (e.message || e) + (e.filename ? (' @ ' + e.filename.split('/').pop() + ':' + e.lineno) : ''), 'error');
+		}, true);
+		window.addEventListener('unhandledrejection', function (e) {
+			var reason = e.reason;
+			pageLog('Unhandled promise rejection: ' + (reason && reason.message ? reason.message : reason), 'error');
 		});
+		document.addEventListener('DOMContentLoaded', function () {
+			document.getElementById('logCopyBtn').addEventListener('click', function () {
+				var text = document.getElementById('logBody').innerText;
+				if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { pageLog('Log copied', 'info'); });
+			});
+
+			document.getElementById('logClearBtn').addEventListener('click', function () {
+				document.getElementById('logBody').innerHTML = '';
+				document.getElementById('logPanel').classList.add('hidden');
+				document.body.classList.remove('has-log');
+			});
+
+			logs("SORS.CALL Web App was started", true);
+		});
+
+		pageLog('Page script started', 'info');
 		
-		document.getElementById('logClearBtn').addEventListener('click', function () {
-            document.getElementById('logBody').innerHTML = '';
-            document.getElementById('logPanel').classList.add('hidden');
-            document.body.classList.remove('has-log');
-         });
-	});
-	pageLog('Page script started', 'info');
-</script>
+	</script>
 
-<nav class="navbar border-bottom border-secondary-subtle px-3">
-	<span id="myIdentity" class="navbar-brand mb-0 h1 fw-normal">Sors.Call</span>
-	<span id="statusBadge" class="badge bg-secondary">Connecting…</span>
-</nav>
+	<nav class="navbar border-bottom border-secondary-subtle px-3">
+		<span id="myIdentity" class="navbar-brand mb-0 h1 fw-normal">Sors.Call</span>
+		<span id="statusBadge" class="badge bg-secondary">Connecting…</span>
+	</nav>
 
-<main class="container py-4" style="max-width: 720px;">
+	<main class="container py-4" style="max-width: 720px;">
 
-	<!-- Main workspace -->
-	<div id="callWorkspace" class="d-none">
+		<!-- Main workspace -->
+		<div id="callWorkspace" class="d-none">
 
-		<!-- Input area: username + two buttons -->
-		<div class="card border-secondary-subtle mb-3">
-			<div class="card-body">
-				<label class="form-label small text-muted" for="peerInput">Username to call</label>
-				<div class="input-group mb-2">
-					<input type="text" id="peerInput" class="form-control" placeholder="Enter username" autocomplete="off">
-					<button id="roomCreateBtn" class="btn btn-outline-light" type="button" title="Create a room">
-						<i class="bi bi-people-fill"></i>
-					</button>
-					<button id="videoCallBtn" class="btn btn-success" type="button" title="Start video call">
-						<i class="bi bi-camera-video-fill"></i>
-					</button>
+			<!-- Input area: username + two buttons -->
+			<div class="card border-secondary-subtle mb-3">
+				<div class="card-body">
+					<label class="form-label small text-muted" for="peerInput">Username to call</label>
+					<div class="input-group mb-2">
+						<input type="text" id="peerInput" class="form-control" placeholder="Enter username" autocomplete="off">
+						<button id="roomCreateBtn" class="btn btn-outline-light" type="button" title="Create a room">
+							<i class="bi bi-people-fill"></i>
+						</button>
+						<button id="videoCallBtn" class="btn btn-success" type="button" title="Start video call">
+							<i class="bi bi-camera-video-fill"></i>
+						</button>
+					</div>
+					<div class="d-flex justify-content-between align-items-center">
+						<span class="small text-muted">Online users &amp; rooms</span>
+						<button id="refreshListBtn" class="btn btn-sm btn-link text-muted p-0" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+					</div>
+					<div id="unifiedList" class="mt-2"></div>
 				</div>
-				<div class="d-flex justify-content-between align-items-center">
-					<span class="small text-muted">Online users &amp; rooms</span>
-					<button id="refreshListBtn" class="btn btn-sm btn-link text-muted p-0" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+			</div>
+
+			<!-- Video stage for direct calls -->
+			<div id="videoStage" class="video-stage d-none mb-3">
+				<div id="remoteTile" class="video-tile remote d-none">
+					<video id="remoteVideo" autoplay playsinline></video>
 				</div>
-				<div id="unifiedList" class="mt-2"></div>
+				<div id="localTile" class="video-tile local d-none">
+					<video id="localVideo" autoplay playsinline muted></video>
+				</div>
+			</div>
+
+			<!-- Video grid for room meetings -->
+			<div id="videoGrid" class="video-grid d-none mb-3"></div>
+
+			<!-- In-call / in-room controls -->
+			<div id="inCallBar" class="in-call-bar d-none">
+				<button id="micBtn" class="control-btn" type="button" title="Mute microphone"><i class="bi bi-mic-fill"></i></button>
+				<button id="cameraBtn" class="control-btn" type="button" title="Turn off camera"><i class="bi bi-camera-video-fill"></i></button>
+				<button id="hangupBtn" class="control-btn hangup" type="button"><i class="bi bi-telephone-x-fill"></i></button>
 			</div>
 		</div>
+	</main>
 
-		<!-- Video stage for direct calls -->
-		<div id="videoStage" class="video-stage d-none mb-3">
-			<div id="remoteTile" class="video-tile remote d-none">
-				<video id="remoteVideo" autoplay playsinline></video>
-			</div>
-			<div id="localTile" class="video-tile local d-none">
-				<video id="localVideo" autoplay playsinline muted></video>
-			</div>
-		</div>
-
-		<!-- Video grid for room meetings -->
-		<div id="videoGrid" class="video-grid d-none mb-3"></div>
-
-		<!-- In-call / in-room controls -->
-		<div id="inCallBar" class="in-call-bar d-none">
-			<button id="micBtn" class="control-btn" type="button" title="Mute microphone"><i class="bi bi-mic-fill"></i></button>
-			<button id="cameraBtn" class="control-btn" type="button" title="Turn off camera"><i class="bi bi-camera-video-fill"></i></button>
-			<button id="hangupBtn" class="control-btn hangup" type="button"><i class="bi bi-telephone-x-fill"></i></button>
-		</div>
-	</div>
-</main>
-
-<!-- Incoming call modal -->
-<div class="modal fade" id="incomingCallModal" tabindex="-1">
-	<div class="modal-dialog modal-dialog-centered">
-		<div class="modal-content border-secondary-subtle">
-			<div class="modal-body text-center py-4">
-				<i class="bi bi-telephone-inbound-fill fs-1 text-success mb-3 d-block"></i>
-				<h5>Incoming call</h5>
-				<p class="text-muted mb-0"><span id="incomingCallerName"></span> is calling you</p>
-			</div>
-			<div class="modal-footer justify-content-center border-0 pb-4">
-				<button id="declineBtn" class="btn btn-danger px-4" type="button"><i class="bi bi-telephone-x-fill me-1"></i>Decline</button>
-				<button id="answerBtn" class="btn btn-success px-4" type="button"><i class="bi bi-telephone-fill me-1"></i>Answer</button>
+	<!-- Incoming call modal -->
+	<div class="modal fade" id="incomingCallModal" tabindex="-1">
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content border-secondary-subtle">
+				<div class="modal-body text-center py-4">
+					<i class="bi bi-telephone-inbound-fill fs-1 text-success mb-3 d-block"></i>
+					<h5>Incoming call</h5>
+					<p class="text-muted mb-0"><span id="incomingCallerName"></span> is calling you</p>
+				</div>
+				<div class="modal-footer justify-content-center border-0 pb-4">
+					<button id="declineBtn" class="btn btn-danger px-4" type="button"><i class="bi bi-telephone-x-fill me-1"></i>Decline</button>
+					<button id="answerBtn" class="btn btn-success px-4" type="button"><i class="bi bi-telephone-fill me-1"></i>Answer</button>
+				</div>
 			</div>
 		</div>
 	</div>
-</div>
 
-<!-- Alert modal -->
-<div class="modal fade" id="alertModal" tabindex="-1">
-	<div class="modal-dialog modal-dialog-centered">
-		<div class="modal-content border-secondary-subtle">
-			<div class="modal-body py-4" id="alertBody"></div>
-			<div class="modal-footer border-0">
-				<button class="btn btn-secondary" data-bs-dismiss="modal" type="button">OK</button>
+	<!-- Alert modal -->
+	<div class="modal fade" id="alertModal" tabindex="-1">
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content border-secondary-subtle">
+				<div class="modal-body py-4" id="alertBody"></div>
+				<div class="modal-footer border-0">
+					<button class="btn btn-secondary" data-bs-dismiss="modal" type="button">OK</button>
+				</div>
 			</div>
 		</div>
 	</div>
-</div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" onload="pageLog('Bootstrap JS loaded')" onerror="pageLog('FAILED to load Bootstrap JS', 'error')"></script>
-<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
-<script src="js/janus.js" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
-<script src="js/call.js" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" onload="pageLog('Bootstrap JS loaded')" onerror="pageLog('FAILED to load Bootstrap JS', 'error')"></script>
+	<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
+	<script src="js/janus.js" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
+	<script src="js/call.js" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
 </body>
+
 </html>
