@@ -95,6 +95,35 @@ body {
 	height: 100%;
 	object-fit: cover;
 }
+.local-camera-switch {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid rgba(255, 255, 255, 0.28);
+	border-radius: 50%;
+	background: rgba(0, 0, 0, 0.58);
+	color: #fff;
+	cursor: pointer;
+	z-index: 4;
+}
+.local-camera-switch:hover {
+	background: rgba(0, 0, 0, 0.78);
+}
+.local-camera-switch:focus-visible {
+	outline: 2px solid rgba(255, 255, 255, 0.85);
+	outline-offset: 1px;
+}
+.video-grid .local-camera-switch {
+	top: 6px;
+	right: 6px;
+}
+
 .video-tile.local {
 	inset: auto 12px 12px auto;
 	width: 30%;
