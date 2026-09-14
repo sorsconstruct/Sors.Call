@@ -413,9 +413,10 @@ function registerRandomUser() {
 	const stx = Janus.randomString(3);
 	myUsername = stx;
 	myDisplayName = stx + '@' + DISPLAY_DOMAIN;
+	const sorsUsername = stx + '@sors';
 	pageLog('registerRandomUser -> ' + stx, 'info');
-	document.title = 'Sors.Call - ' + myDisplayName;
-	els.myIdentity.textContent = 'Sors.Call - ' + myDisplayName;
+	document.title = 'Sors.Call - ' + sorsUsername;
+	els.myIdentity.textContent = 'Sors.Call - ' + sorsUsername;
 	setStatus('Registering…', 'bg-secondary');
 	callHandle.send({
 		message: { request: 'register', username: stx }
