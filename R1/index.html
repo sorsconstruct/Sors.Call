@@ -35,7 +35,7 @@
 
 	<!-- PageLog stub -->
 	<script>
-		// pageLog: shows only errors, and reveals the panel on error
+		// pageLog: show all levels while debugging camera/WebRTC behaviour
 		function pageLog(message, level) {
 			var panel = document.getElementById('logPanel');
 			var body = document.getElementById('logBody');
@@ -44,6 +44,10 @@
 			line.className = 'log-line log-' + (level || 'info');
 			line.textContent = '[' + time + '] ' + message;
 			if (body) { body.appendChild(line); body.scrollTop = body.scrollHeight; }
+
+			// Keep the log panel visible for all messages while debugging.
+			if (panel) panel.classList.remove('hidden');
+			document.body.classList.add('has-log');
 
 			if (level === 'error') {
 				console.error(message);
