@@ -1010,7 +1010,9 @@ function renderUnifiedList() {
 	otherUsers.forEach(function (name) {
 		const item = document.createElement('span');
 		item.className = 'list-item user';
-		item.innerHTML = '<span class="icon">👤</span><span class="name">' + name + '</span>';
+		// item.innerHTML = '<span class="icon">👤</span><span class="name">' + name + '</span>';
+		item.innerHTML = '<span class="icon"><i class="bi bi-person-fill" style="color:#4db966;"></i></span>' +
+                         '<span class="name">' + name + '</span>';
 		item.addEventListener('click', function () { startCall(name); });
 		container.appendChild(item);
 	});
@@ -1020,7 +1022,9 @@ function renderUnifiedList() {
 		const description = room.description || 'Room ' + roomId;
 		const item = document.createElement('span');
 		item.className = 'list-item room';
-		item.innerHTML = '<span class="icon">👥</span><span class="name">' + description + '</span>';
+		// item.innerHTML = '<span class="icon">👥</span><span class="name">' + description + '</span>';
+		item.innerHTML = '<span class="icon"><i class="bi bi-people-fill" style="color:#000; filter:grayscale(100%);"></i></span>' +
+                         '<span class="name">' + description + '</span>';
 		item.addEventListener('click', function () { joinRoom(roomId); });
 		container.appendChild(item);
 	});
