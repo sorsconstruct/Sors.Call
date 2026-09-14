@@ -1118,56 +1118,107 @@ function getCameraSender(handle) {
 async function acquireNextCamera(devices, currentTrack, currentId) {
 	const settings = currentTrack && currentTrack.getSettings ? currentTrack.getSettings() : {};
 	const facing = settings.facingMode || '';
-	let index = devices.findIndex(function (device) { return device.deviceId && device.deviceId === currentId; });
+	const currentDevice = devices.find(function (device) {
+		return device.deviceId && device.deviceId === currentId;
+	});
+	const currentLabel = currentDevice ? (currentDevice.label || '') : (currentTrack ? currentTrack.label || '' : '');
 
-	// Mobile browsers often expose front/back cameras but deviceId handling can be
-	// unreliable. Prefer the opposite facingMode when it is available.
-	if (facing === 'user' || facing === 'environment') {
-		const wanted = facing === 'user' ? 'environment' : 'user';
-		pageLog('[CameraSwitch] Current facingMode=' + facing + '; looking for ' + wanted, 'info');
+	// IMPORTANT on Android/mobile browsers:
+	// Some devices cannot open camera B while camera A is still actively capturing.
+	// The old implementation tried getUserMedia() first and therefore received
+	// NotReadableError. The caller now stops the current track before entering here.
+	const wanted = facing === 'user' ? 'environment' : (facing === 'environment' ? 'user' : '');
+	pageLog('[CameraSwitch] acquireNextCamera: current=' + currentLabel + ', wantedFacing=' + (wanted || '(unknown)'), 'debug');
+
+	// Build candidates. Prefer the opposite-facing cameras first. The labels are
+	// useful on Android because enumerateDevices() may expose several physical
+	// camera IDs for the same front/back direction.
+	let candidates = devices.filter(function (device) {
+		return device.deviceId && device.deviceId !== currentId;
+	});
+
+	if (wanted) {
+		const wantedCandidates = candidates.filter(function (device) {
+			const label = (device.label || '').toLowerCase();
+			return wanted === 'environment'
+				? /back|rear|environment|camera 2|camera 0/.test(label)
+				: /front|user|camera 1|camera 3/.test(label);
+		});
+		if (wantedCandidates.length) {
+			candidates = wantedCandidates.concat(candidates.filter(function (device) {
+				return wantedCandidates.indexOf(device) < 0;
+			}));
+		}
+	}
+
+	// First try the facing constraint. This is preferable to guessing a device ID.
+	if (wanted) {
+		pageLog('[CameraSwitch] Trying facingMode=' + wanted + ' after releasing current camera', 'info');
 		try {
-			const opposite = await navigator.mediaDevices.getUserMedia({
+			const stream = await navigator.mediaDevices.getUserMedia({
 				video: { facingMode: { exact: wanted } },
 				audio: false
 			});
-			const track = opposite.getVideoTracks()[0];
+			const track = stream.getVideoTracks()[0];
 			if (track) {
-				pageLog('[CameraSwitch] Acquired opposite camera via facingMode=' + wanted +
-					' (' + (track.label || '(no label)') + ')', 'info');
-				return { stream: opposite, track: track };
+				pageLog('[CameraSwitch] Acquired opposite camera: label=' + (track.label || '(no label)') +
+					', deviceId=' + ((track.getSettings && track.getSettings().deviceId) || '(none)') +
+					', facingMode=' + ((track.getSettings && track.getSettings().facingMode) || '(none)'), 'info');
+				return { stream: stream, track: track };
 			}
-			opposite.getTracks().forEach(function (t) { t.stop(); });
-		} catch (e) {
-			pageLog('[CameraSwitch] facingMode=' + wanted + ' failed: ' + e.name + ': ' + e.message, 'warn');
-		}
-	}
-
-	if (index < 0) index = 0;
-	const nextDevice = devices[(index + 1) % devices.length];
-	if (!nextDevice || !nextDevice.deviceId || nextDevice.deviceId === currentId) {
-		pageLog('[CameraSwitch] Could not select a different camera', 'warn');
-		return null;
-	}
-
-	pageLog('[CameraSwitch] Trying deviceId=' + nextDevice.deviceId + ', label=' +
-		(nextDevice.label || '(no label)'), 'info');
-	try {
-		const stream = await navigator.mediaDevices.getUserMedia({
-			video: { deviceId: { exact: nextDevice.deviceId } },
-			audio: false
-		});
-		const track = stream.getVideoTracks()[0];
-		if (!track) {
 			stream.getTracks().forEach(function (t) { t.stop(); });
-			pageLog('[CameraSwitch] getUserMedia returned no video track', 'error');
-			return null;
+		} catch (e) {
+			pageLog('[CameraSwitch] facingMode=' + wanted + ' failed after release: ' + e.name + ': ' + e.message, 'warn');
 		}
-		pageLog('[CameraSwitch] Acquired device: ' + (track.label || '(no label)'), 'info');
-		return { stream: stream, track: track };
-	} catch (e) {
-		pageLog('[CameraSwitch] deviceId getUserMedia failed: ' + e.name + ': ' + e.message, 'warn');
-		return null;
 	}
+
+	// Fall back to explicit device IDs. Try every other camera, not only the next
+	// array item, because browsers can enumerate multiple cameras in arbitrary order.
+	for (let i = 0; i < candidates.length; i++) {
+		const device = candidates[i];
+		pageLog('[CameraSwitch] Trying deviceId[' + i + ']=' + device.deviceId + ', label=' +
+			(device.label || '(no label)'), 'info');
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: { deviceId: { exact: device.deviceId } },
+				audio: false
+			});
+			const track = stream.getVideoTracks()[0];
+			if (track) {
+				pageLog('[CameraSwitch] Acquired device: ' + (track.label || '(no label)') +
+					', deviceId=' + ((track.getSettings && track.getSettings().deviceId) || '(none)') +
+					', facingMode=' + ((track.getSettings && track.getSettings().facingMode) || '(none)'), 'info');
+				return { stream: stream, track: track };
+			}
+			stream.getTracks().forEach(function (t) { t.stop(); });
+		} catch (e) {
+			pageLog('[CameraSwitch] deviceId getUserMedia failed for ' + device.deviceId + ': ' +
+				e.name + ': ' + e.message, 'warn');
+		}
+	}
+
+	return null;
+}
+
+async function reacquireCamera(currentId, currentSettings) {
+	pageLog('[CameraSwitch] Attempting to restore previous camera after switch failure', 'warn');
+	const constraints = currentId
+		? { video: { deviceId: { exact: currentId } }, audio: false }
+		: (currentSettings && currentSettings.facingMode
+			? { video: { facingMode: { exact: currentSettings.facingMode } }, audio: false }
+			: { video: true, audio: false });
+	try {
+		const stream = await navigator.mediaDevices.getUserMedia(constraints);
+		const track = stream.getVideoTracks()[0];
+		if (track) {
+			pageLog('[CameraSwitch] Previous camera restored: ' + (track.label || '(no label)'), 'info');
+			return { stream: stream, track: track };
+		}
+		stream.getTracks().forEach(function (t) { t.stop(); });
+	} catch (e) {
+		pageLog('[CameraSwitch] Could not restore previous camera: ' + e.name + ': ' + e.message, 'error');
+	}
+	return null;
 }
 
 async function switchLocalCamera() {
@@ -1186,7 +1237,6 @@ async function switchLocalCamera() {
 	}
 
 	const devices = await getVideoInputDevices();
-	// A single camera intentionally does nothing.
 	if (devices.length <= 1) {
 		pageLog('[CameraSwitch] Only ' + devices.length + ' camera available; nothing to switch', 'info');
 		return;
@@ -1209,19 +1259,38 @@ async function switchLocalCamera() {
 
 	cameraSwitchInProgress = true;
 	let acquired = null;
+	let oldTrackStopped = false;
 	try {
+		// Android/WebView frequently returns NotReadableError when two camera
+		// sources are opened simultaneously. Release the active camera FIRST.
+		pageLog('[CameraSwitch] Stopping current camera track before opening the new camera', 'info');
+		currentTrack.stop();
+		oldTrackStopped = true;
+
 		acquired = await acquireNextCamera(devices, currentTrack, currentId);
 		if (!acquired || !acquired.track) {
-			pageLog('[CameraSwitch] Failed to acquire a different camera', 'error');
+			pageLog('[CameraSwitch] No replacement camera acquired; restoring original camera', 'error');
+			const restored = await reacquireCamera(currentId, settings);
+			if (restored && restored.track) {
+				await sender.replaceTrack(restored.track);
+				myStream.removeTrack(currentTrack);
+				myStream.addTrack(restored.track);
+				setCurrentCameraDevice(myStream);
+				if (isInRoom) {
+					const roomVideo = document.querySelector('#localTileRoom video');
+					if (roomVideo) roomVideo.srcObject = myStream;
+				} else if (els.localVideo) {
+					Janus.attachMediaStream(els.localVideo, myStream);
+				}
+			}
 			return;
 		}
 
-		pageLog('[CameraSwitch] Calling RTCRtpSender.replaceTrack()...', 'info');
+		pageLog('[CameraSwitch] New camera acquired; calling RTCRtpSender.replaceTrack()', 'info');
 		await sender.replaceTrack(acquired.track);
 		pageLog('[CameraSwitch] replaceTrack() completed successfully', 'info');
 
 		myStream.removeTrack(currentTrack);
-		currentTrack.stop();
 		myStream.addTrack(acquired.track);
 		setCurrentCameraDevice(myStream);
 
@@ -1229,10 +1298,12 @@ async function switchLocalCamera() {
 			const roomVideo = document.querySelector('#localTileRoom video');
 			if (roomVideo) {
 				roomVideo.srcObject = myStream;
+				try { await roomVideo.play(); } catch (ignore) {}
 				pageLog('[CameraSwitch] Room local video element updated', 'debug');
 			}
 		} else if (els.localVideo) {
 			Janus.attachMediaStream(els.localVideo, myStream);
+			try { await els.localVideo.play(); } catch (ignore) {}
 			pageLog('[CameraSwitch] Direct-call local video element updated', 'debug');
 		}
 
@@ -1241,6 +1312,28 @@ async function switchLocalCamera() {
 		pageLog('[CameraSwitch] SWITCH FAILED: ' + e.name + ': ' + e.message, 'error');
 		if (acquired && acquired.track) {
 			try { acquired.track.stop(); } catch (ignore) {}
+		}
+		// If the new camera was acquired but replaceTrack failed, try to restore
+		// the original source so the call is not left without local video.
+		if (oldTrackStopped) {
+			const restored = await reacquireCamera(currentId, settings);
+			if (restored && restored.track) {
+				try {
+					await sender.replaceTrack(restored.track);
+					myStream.removeTrack(currentTrack);
+					myStream.addTrack(restored.track);
+					setCurrentCameraDevice(myStream);
+					if (isInRoom) {
+						const roomVideo = document.querySelector('#localTileRoom video');
+						if (roomVideo) roomVideo.srcObject = myStream;
+					} else if (els.localVideo) {
+						Janus.attachMediaStream(els.localVideo, myStream);
+					}
+					pageLog('[CameraSwitch] Original camera restored after failure', 'info');
+				} catch (restoreError) {
+					pageLog('[CameraSwitch] Restored camera could not be attached: ' + restoreError.message, 'error');
+				}
+			}
 		}
 	} finally {
 		cameraSwitchInProgress = false;
