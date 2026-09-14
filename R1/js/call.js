@@ -1064,81 +1064,183 @@ function setCurrentCameraDevice(stream) {
 	const track = stream && stream.getVideoTracks ? stream.getVideoTracks()[0] : null;
 	if (!track) {
 		currentCameraDeviceId = null;
+		pageLog('[CameraSwitch] No local video track', 'warn');
 		return;
 	}
 	try {
-		currentCameraDeviceId = (track.getSettings && track.getSettings().deviceId) || null;
+		const settings = track.getSettings ? track.getSettings() : {};
+		currentCameraDeviceId = settings.deviceId || null;
+		pageLog('[CameraSwitch] Active camera: deviceId=' + (settings.deviceId || '(none)') +
+			', facingMode=' + (settings.facingMode || '(none)') +
+			', label=' + (track.label || '(none)'), 'info');
 	} catch (e) {
 		currentCameraDeviceId = null;
+		pageLog('[CameraSwitch] Could not read current camera settings: ' + e.message, 'warn');
 	}
 }
 
 async function getVideoInputDevices() {
+	if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+		pageLog('[CameraSwitch] enumerateDevices() is unavailable', 'error');
+		return [];
+	}
 	try {
 		const devices = await navigator.mediaDevices.enumerateDevices();
-		return devices.filter(function (device) { return device.kind === 'videoinput'; });
+		const cameras = devices.filter(function (device) { return device.kind === 'videoinput'; });
+		pageLog('[CameraSwitch] enumerateDevices(): ' + cameras.length + ' camera(s)', 'info');
+		cameras.forEach(function (device, i) {
+			pageLog('[CameraSwitch] camera[' + i + ']: id=' + (device.deviceId || '(none)') +
+			', label=' + (device.label || '(label hidden)') +
+			', group=' + (device.groupId || '(none)'), 'debug');
+		});
+		return cameras;
 	} catch (e) {
+		pageLog('[CameraSwitch] enumerateDevices() failed: ' + e.message, 'error');
 		return [];
 	}
 }
 
-async function switchLocalCamera() {
-	if (cameraSwitchInProgress || !myStream || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+function getCameraSender(handle) {
+	if (!handle || !handle.webrtcStuff || !handle.webrtcStuff.pc) {
+		pageLog('[CameraSwitch] No active PeerConnection on ' + (isInRoom ? 'room' : 'call') + ' handle', 'error');
+		return null;
+	}
+	const pc = handle.webrtcStuff.pc;
+	pageLog('[CameraSwitch] PeerConnection state=' + pc.connectionState + ', senders=' + pc.getSenders().length, 'debug');
+	const sender = pc.getSenders().find(function (s) {
+		return s && ((s.track && s.track.kind === 'video') || s.kind === 'video');
+	});
+	if (!sender) pageLog('[CameraSwitch] No video RTCRtpSender found', 'error');
+	else pageLog('[CameraSwitch] Video sender found; current sender track=' + (sender.track ? sender.track.label : '(none)'), 'debug');
+	return sender;
+}
 
-	const devices = await getVideoInputDevices();
-	// A single camera means the button intentionally does nothing.
-	if (devices.length <= 1) return;
+async function acquireNextCamera(devices, currentTrack, currentId) {
+	const settings = currentTrack && currentTrack.getSettings ? currentTrack.getSettings() : {};
+	const facing = settings.facingMode || '';
+	let index = devices.findIndex(function (device) { return device.deviceId && device.deviceId === currentId; });
 
-	const currentTrack = myStream.getVideoTracks()[0];
-	const currentId = currentCameraDeviceId || (function () {
-		try { return currentTrack && currentTrack.getSettings ? currentTrack.getSettings().deviceId : null; } catch (e) { return null; }
-	})();
+	// Mobile browsers often expose front/back cameras but deviceId handling can be
+	// unreliable. Prefer the opposite facingMode when it is available.
+	if (facing === 'user' || facing === 'environment') {
+		const wanted = facing === 'user' ? 'environment' : 'user';
+		pageLog('[CameraSwitch] Current facingMode=' + facing + '; looking for ' + wanted, 'info');
+		try {
+			const opposite = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: { exact: wanted } },
+				audio: false
+			});
+			const track = opposite.getVideoTracks()[0];
+			if (track) {
+				pageLog('[CameraSwitch] Acquired opposite camera via facingMode=' + wanted +
+					' (' + (track.label || '(no label)') + ')', 'info');
+				return { stream: opposite, track: track };
+			}
+			opposite.getTracks().forEach(function (t) { t.stop(); });
+		} catch (e) {
+			pageLog('[CameraSwitch] facingMode=' + wanted + ' failed: ' + e.name + ': ' + e.message, 'warn');
+		}
+	}
 
-	let index = devices.findIndex(function (device) { return device.deviceId === currentId; });
 	if (index < 0) index = 0;
 	const nextDevice = devices[(index + 1) % devices.length];
-	if (!nextDevice || !nextDevice.deviceId || nextDevice.deviceId === currentId) return;
+	if (!nextDevice || !nextDevice.deviceId || nextDevice.deviceId === currentId) {
+		pageLog('[CameraSwitch] Could not select a different camera', 'warn');
+		return null;
+	}
 
-	const handle = isInRoom ? roomHandle : callHandle;
-	if (!handle || !handle.webrtcStuff || !handle.webrtcStuff.pc) return;
-
-	cameraSwitchInProgress = true;
-	let newVideoTrack = null;
+	pageLog('[CameraSwitch] Trying deviceId=' + nextDevice.deviceId + ', label=' +
+		(nextDevice.label || '(no label)'), 'info');
 	try {
-		const newVideoStream = await navigator.mediaDevices.getUserMedia({
+		const stream = await navigator.mediaDevices.getUserMedia({
 			video: { deviceId: { exact: nextDevice.deviceId } },
 			audio: false
 		});
-		newVideoTrack = newVideoStream.getVideoTracks()[0];
-		if (!newVideoTrack) return;
-
-		const sender = handle.webrtcStuff.pc.getSenders().find(function (s) {
-			return s && s.track && s.track.kind === 'video';
-		});
-		if (!sender) return;
-
-		await sender.replaceTrack(newVideoTrack);
-
-		// Keep Janus' existing MediaStream object so mute/unmute and cleanup
-		// continue to operate on the currently active camera track.
-		if (currentTrack) {
-			myStream.removeTrack(currentTrack);
-			currentTrack.stop();
+		const track = stream.getVideoTracks()[0];
+		if (!track) {
+			stream.getTracks().forEach(function (t) { t.stop(); });
+			pageLog('[CameraSwitch] getUserMedia returned no video track', 'error');
+			return null;
 		}
-		myStream.addTrack(newVideoTrack);
-		currentCameraDeviceId = nextDevice.deviceId;
+		pageLog('[CameraSwitch] Acquired device: ' + (track.label || '(no label)'), 'info');
+		return { stream: stream, track: track };
+	} catch (e) {
+		pageLog('[CameraSwitch] deviceId getUserMedia failed: ' + e.name + ': ' + e.message, 'warn');
+		return null;
+	}
+}
+
+async function switchLocalCamera() {
+	pageLog('[CameraSwitch] ===== switch requested =====', 'info');
+	if (cameraSwitchInProgress) {
+		pageLog('[CameraSwitch] Ignored: another switch is already running', 'debug');
+		return;
+	}
+	if (!myStream) {
+		pageLog('[CameraSwitch] Ignored: local stream is not available', 'warn');
+		return;
+	}
+	if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+		pageLog('[CameraSwitch] Ignored: getUserMedia() is unavailable', 'error');
+		return;
+	}
+
+	const devices = await getVideoInputDevices();
+	// A single camera intentionally does nothing.
+	if (devices.length <= 1) {
+		pageLog('[CameraSwitch] Only ' + devices.length + ' camera available; nothing to switch', 'info');
+		return;
+	}
+
+	const currentTrack = myStream.getVideoTracks()[0];
+	if (!currentTrack) {
+		pageLog('[CameraSwitch] Ignored: local stream has no video track', 'error');
+		return;
+	}
+	const settings = currentTrack.getSettings ? currentTrack.getSettings() : {};
+	const currentId = currentCameraDeviceId || settings.deviceId || null;
+	pageLog('[CameraSwitch] Current: deviceId=' + (currentId || '(none)') +
+		', facingMode=' + (settings.facingMode || '(none)') +
+		', label=' + (currentTrack.label || '(none)'), 'info');
+
+	const handle = isInRoom ? roomHandle : callHandle;
+	const sender = getCameraSender(handle);
+	if (!sender) return;
+
+	cameraSwitchInProgress = true;
+	let acquired = null;
+	try {
+		acquired = await acquireNextCamera(devices, currentTrack, currentId);
+		if (!acquired || !acquired.track) {
+			pageLog('[CameraSwitch] Failed to acquire a different camera', 'error');
+			return;
+		}
+
+		pageLog('[CameraSwitch] Calling RTCRtpSender.replaceTrack()...', 'info');
+		await sender.replaceTrack(acquired.track);
+		pageLog('[CameraSwitch] replaceTrack() completed successfully', 'info');
+
+		myStream.removeTrack(currentTrack);
+		currentTrack.stop();
+		myStream.addTrack(acquired.track);
+		setCurrentCameraDevice(myStream);
 
 		if (isInRoom) {
 			const roomVideo = document.querySelector('#localTileRoom video');
-			if (roomVideo) roomVideo.srcObject = myStream;
-		} else {
-			els.localVideo.srcObject = myStream;
+			if (roomVideo) {
+				roomVideo.srcObject = myStream;
+				pageLog('[CameraSwitch] Room local video element updated', 'debug');
+			}
+		} else if (els.localVideo) {
+			Janus.attachMediaStream(els.localVideo, myStream);
+			pageLog('[CameraSwitch] Direct-call local video element updated', 'debug');
 		}
+
+		pageLog('[CameraSwitch] ===== SWITCH SUCCESS =====', 'info');
 	} catch (e) {
-		// Camera switching is deliberately silent: no modal/error message.
-		pageLog('Camera switch unavailable: ' + (e.message || e), 'debug');
-		if (newVideoTrack) {
-			try { newVideoTrack.stop(); } catch (ignore) {}
+		pageLog('[CameraSwitch] SWITCH FAILED: ' + e.name + ': ' + e.message, 'error');
+		if (acquired && acquired.track) {
+			try { acquired.track.stop(); } catch (ignore) {}
 		}
 	} finally {
 		cameraSwitchInProgress = false;
