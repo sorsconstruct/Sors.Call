@@ -695,7 +695,7 @@ function onRoomLocalStream(stream) {
 	video.srcObject = stream;
 	const label = document.createElement('div');
 	label.className = 'tile-label';
-	label.textContent = 'You';
+	label.textContent = 'Me';
 	tile.appendChild(video);
 	tile.appendChild(label);
 	grid.prepend(tile);
@@ -783,7 +783,8 @@ function createRoomSubscriber(feedId, displayName) {
 			video.srcObject = stream;
 			const label = document.createElement('div');
 			label.className = 'tile-label';
-			label.textContent = sub.display || 'Unknown';
+			// label.textContent = sub.display || 'Unknown';
+			label.textContent = (sub.display || 'Unknown').split('@')[0];
 			tile.appendChild(video);
 			tile.appendChild(label);
 			grid.appendChild(tile);
