@@ -1,21 +1,39 @@
 
+let _notificationAsked = false;
 
-// Ask for permission on first page load
-(function initNotificationAccess() {
+// Request permission (must be inside user gesture)
+function initNotificationAccess() {
+    if (_notificationAsked) return;
+    _notificationAsked = true;
+
     if (!("Notification" in window)) {
         console.warn("This browser does not support notifications.");
         pageLog('This browser does not support notifications.', 'info');
         return;
     }
 
-    // If permission is not granted, request it
-    if (Notification.permission === "default") {
-        Notification.requestPermission().then(result => {
-            console.log("Notification permission:", result);
-            pageLog('Notification permission: ' + result, 'info');
-        });
-    }
-})();
+    Notification.requestPermission().then(result => {
+        console.log("Notification permission:", result);
+        pageLog('Notification permission: ' + result, 'info');
+    });
+}
+
+// Global user interaction handler
+function _globalUserInteractionHandler() {
+    initNotificationAccess();
+
+    // Remove listeners so it runs only once
+    window.removeEventListener("mousedown", _globalUserInteractionHandler);
+    window.removeEventListener("mouseup", _globalUserInteractionHandler);
+    window.removeEventListener("click", _globalUserInteractionHandler);
+    window.removeEventListener("mousemove", _globalUserInteractionHandler);
+}
+
+// Attach global listeners (allowed by browsers)
+window.addEventListener("mousedown", _globalUserInteractionHandler);
+window.addEventListener("mouseup", _globalUserInteractionHandler);
+window.addEventListener("click", _globalUserInteractionHandler);
+window.addEventListener("mousemove", _globalUserInteractionHandler);
 
 // Main function to show notification
 function showNotification(text) {
@@ -25,32 +43,20 @@ function showNotification(text) {
         return;
     }
 
-    // If permission already granted → show notification
     if (Notification.permission === "granted") {
         new Notification("Sors Notification", {
             body: text,
-            icon: "assets/notification.png" // optional
+            icon: "assets/notification.png"
         });
         return;
     }
 
-    // If permission denied → cannot show
     if (Notification.permission === "denied") {
         console.warn("User blocked notifications.");
         pageLog('User blocked notifications.', 'info');
         return;
     }
 
-    // If permission not decided → ask again
-    Notification.requestPermission().then(result => {
-        if (result === "granted") {
-            new Notification("Sors Notification", {
-                body: text,
-                icon: "assets/notification.png"
-            });
-        } else {
-            console.warn("Notification permission not granted.");
-            pageLog('Notification permission not granted.', 'info');
-        }
-    });
+    pageLog('Permission not granted yet.', 'info');
+    console.warn("Permission not granted yet.");
 }
