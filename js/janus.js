@@ -513,7 +513,7 @@ function Janus(gatewayCallbacks) {
 					connected = false;
 					// gatewayCallbacks.error("Lost connection to the server (is it down?)");
 
-                    HomeMchatIcon.SendPushNotification3("Lost connection to the server (is it down?)")
+                    showNotification("Lost connection to the server (is it down?)")
                     window.location.reload();
 
 					return;
@@ -844,7 +844,7 @@ function Janus(gatewayCallbacks) {
 					// FIXME What if this is called when the page is closed?
 					// gatewayCallbacks.error("Lost connection to the server (is it down?)");
 
-                    HomeMchatIcon.SendPushNotification3("Lost connection to the server (is it down?)")
+                    showNotification("Lost connection to the server (is it down?)")
                     window.location.reload();
 				}
 			};
