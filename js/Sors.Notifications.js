@@ -4,6 +4,7 @@
 (function initNotificationAccess() {
     if (!("Notification" in window)) {
         console.warn("This browser does not support notifications.");
+        pageLog('This browser does not support notifications.', 'info');
         return;
     }
 
@@ -11,6 +12,7 @@
     if (Notification.permission === "default") {
         Notification.requestPermission().then(result => {
             console.log("Notification permission:", result);
+            pageLog('Notification permission: ' + result, 'info');
         });
     }
 })();
@@ -19,6 +21,7 @@
 function showNotification(text) {
     if (!("Notification" in window)) {
         console.warn("Notifications are not supported.");
+        pageLog('Notifications are not supported.', 'info');
         return;
     }
 
@@ -34,6 +37,7 @@ function showNotification(text) {
     // If permission denied → cannot show
     if (Notification.permission === "denied") {
         console.warn("User blocked notifications.");
+        pageLog('User blocked notifications.', 'info');
         return;
     }
 
@@ -46,6 +50,7 @@ function showNotification(text) {
             });
         } else {
             console.warn("Notification permission not granted.");
+            pageLog('Notification permission not granted.', 'info');
         }
     });
 }
