@@ -1,4 +1,5 @@
-// List of sessions
+'use strict';
+
 Janus.sessions = {};
 
 Janus.isExtensionEnabled = function() {
