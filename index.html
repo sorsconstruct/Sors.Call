@@ -14,6 +14,9 @@
 			display: none;
 		}
 	</style>
+	
+	<script src="js/Sors.Notifications.js?ver=1.7" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
+	
 </head>
 
 <body>
@@ -119,6 +122,8 @@
 				document.getElementById('logPanel').classList.add('hidden');
 				document.body.classList.remove('has-log');
 			});
+			
+			initNotificationAccess();
 
 			logs("SORS.CALL Web App was started", true);
 		});
@@ -214,8 +219,7 @@
 	<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
 	<script src="js/janus.js?ver=1.7" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
 	<script src="js/call.js?ver=1.7" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
-	<script src="js/Sors.Notifications.js?ver=1.7" onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
-	
+
 </body>
 
 </html>
