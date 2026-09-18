@@ -26,7 +26,7 @@ function showNotification(text) {
     if (Notification.permission === "granted") {
         new Notification("Sors Notification", {
             body: text,
-            icon: "notification.png" // optional
+            icon: "assets/notification.png" // optional
         });
         return;
     }
@@ -42,7 +42,7 @@ function showNotification(text) {
         if (result === "granted") {
             new Notification("Sors Notification", {
                 body: text,
-                icon: "notification.png"
+                icon: "assets/notification.png"
             });
         } else {
             console.warn("Notification permission not granted.");
