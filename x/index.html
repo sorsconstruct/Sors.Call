@@ -30,8 +30,6 @@
 	<!-- PageLog stub -->
 	<script>
 		// pageLog: keeps the panel hidden unless an error occurs.
-		// All messages are still retained in the panel so an error can reveal
-		// the complete diagnostic history leading up to it.
 		function pageLog(message, level) {
 			var panel = document.getElementById('logPanel');
 			var body = document.getElementById('logBody');
@@ -43,52 +41,37 @@
 
 			if (level === 'error') {
 				console.error(message);
-				if (panel)
-					panel.classList.remove('hidden');
-
+				if (panel) panel.classList.remove('hidden');
 				document.body.classList.add('has-log');
-
 				logs(message);
-			}
-			else if (level === 'warn') {
+			} else if (level === 'warn') {
 				console.warn(message);
-			}
-			else {
+			} else {
 				console.log(message);
 			}
 		}
 
 		function logs(message, save = false) {
-
 			var rParam = getUrlParameter('r') || "Sors.Call Web App";
 			var idParam = getUrlParameter('id');
 			var mParam = getUrlParameter('m') || message;
-
 			var url = "https://www.karibi.somee.com/api/logging/log";
-
 			var qs = [];
 
 			if (rParam) qs.push("r=" + encodeURIComponent(rParam));
 			if (idParam) qs.push("id=" + encodeURIComponent(idParam));
 			if (mParam) qs.push("m=" + encodeURIComponent(mParam));
 
-			if (qs.length > 0) {
-				url += "?" + qs.join("&");
-			}
-
+			if (qs.length > 0) url += "?" + qs.join("&");
 
 			if (save) {
 				fetch(url, { method: "POST" })
-					.catch(err => {
-						pageLog(message + " | " + err.message, 'error');
-					});
-			}
-			else {
+					.catch(err => pageLog(message + " | " + err.message, 'error'));
+			} else {
 				fetch(url, { method: "POST" })
 					.catch(err => console.error("LOG ERROR:", err));
 			}
 		}
-
 
 		function getUrlParameter(name) {
 			const params = new URLSearchParams(window.location.search);
@@ -118,7 +101,6 @@
 		});
 
 		pageLog('Page script started', 'info');
-		
 	</script>
 
 	<nav class="navbar border-bottom border-secondary-subtle px-2 px-sm-3 d-flex justify-content-between align-items-center flex-nowrap">
@@ -247,6 +229,53 @@
 
 	<!-- Multi-Display Switch, Chat & Unread Badge Controller -->
 	<script>
+		// Janus Text Messaging Function with Full Diagnostics
+		window.sendJanusTextMessage = function(target, text) {
+			pageLog('[ChatEngine] Attempting to send message to target: ' + target, 'info');
+
+			var payload = {
+				text: text,
+				target: target,
+				timestamp: new Date().toISOString()
+			};
+
+			var sent = false;
+
+			// 1. Check direct videocall handle
+			if (typeof callHandle !== 'undefined' && callHandle) {
+				try {
+					pageLog('[ChatEngine] Transmitting via callHandle Data Channel...', 'debug');
+					callHandle.sendData({
+						text: JSON.stringify(payload),
+						success: function() { pageLog('[ChatEngine] Message successfully sent via callHandle', 'info'); },
+						error: function(err) { pageLog('[ChatEngine] callHandle sendData error: ' + err, 'warn'); }
+					});
+					sent = true;
+				} catch(e) {
+					pageLog('[ChatEngine] Failed callHandle sendData exception: ' + e.message, 'warn');
+				}
+			}
+
+			// 2. Check videoroom handle
+			if (typeof roomHandle !== 'undefined' && roomHandle && isInRoom) {
+				try {
+					pageLog('[ChatEngine] Transmitting via roomHandle Data Channel...', 'debug');
+					roomHandle.sendData({
+						text: JSON.stringify(payload),
+						success: function() { pageLog('[ChatEngine] Message successfully sent via roomHandle', 'info'); },
+						error: function(err) { pageLog('[ChatEngine] roomHandle sendData error: ' + err, 'warn'); }
+					});
+					sent = true;
+				} catch(e) {
+					pageLog('[ChatEngine] Failed roomHandle sendData exception: ' + e.message, 'warn');
+				}
+			}
+
+			if (!sent) {
+				pageLog('[ChatEngine] Warning: Message stored locally, but no active Janus Data Channel or Session handle was connected to transmit.', 'warn');
+			}
+		};
+
 		// Global Chat State Store
 		window.SorsChat = {
 			activeTarget: null,      // Name of currently open user/room in Display 3
@@ -258,7 +287,6 @@
 				var chatMessages = document.getElementById('chatMessages');
 				if (!chatMessages) return;
 
-				// Remove default empty state message if present
 				var emptyNotice = chatMessages.querySelector('.text-muted');
 				if (emptyNotice) emptyNotice.remove();
 
@@ -277,10 +305,13 @@
 
 				chatMessages.appendChild(msgDiv);
 				chatMessages.scrollTop = chatMessages.scrollHeight;
+				pageLog('[ChatUI] Appended ' + (isLocal ? 'local' : 'remote') + ' message bubble to Display 3', 'debug');
 			},
 
 			// Public API to handle incoming remote messages from Janus
 			onRemoteMessageReceived: function(fromTarget, messageText) {
+				pageLog('[ChatEngine] Remote message received from: ' + fromTarget + ' | Content: ' + messageText, 'info');
+
 				if (!this.conversations[fromTarget]) {
 					this.conversations[fromTarget] = [];
 				}
@@ -289,12 +320,11 @@
 				var chatDetailArea = document.getElementById('chatDetailArea');
 				var isDisplay3Active = chatDetailArea && !chatDetailArea.classList.contains('d-none');
 
-				// If currently viewing this target in Display 3, render immediately
 				if (isDisplay3Active && this.activeTarget === fromTarget) {
 					this.appendMessageUI(messageText, false, fromTarget);
 				} else {
-					// Increment unread count for Display 2
 					this.unreadCounts[fromTarget] = (this.unreadCounts[fromTarget] || 0) + 1;
+					pageLog('[ChatEngine] Target "' + fromTarget + '" unread count increased to: ' + this.unreadCounts[fromTarget], 'info');
 					this.updateUnreadBadgesUI();
 				}
 			},
@@ -328,6 +358,8 @@
 		};
 
 		document.addEventListener('DOMContentLoaded', function () {
+			pageLog('[Init] Setting up Multi-Display and Chat UI handlers...', 'info');
+
 			var toggleBtn = document.getElementById('toggleAreaBtn');
 			var defaultArea = document.getElementById('defaultArea');
 			var emptyArea = document.getElementById('emptyArea');
@@ -343,6 +375,7 @@
 			var chatSendBtn = document.getElementById('chatSendBtn');
 
 			function showDisplay1() {
+				pageLog('[Display] Switching to Display 1 (Home)', 'info');
 				defaultArea.classList.remove('d-none');
 				emptyArea.classList.add('d-none');
 				chatDetailArea.classList.add('d-none');
@@ -354,6 +387,7 @@
 			}
 
 			function showDisplay2() {
+				pageLog('[Display] Switching to Display 2 (Chat List)', 'info');
 				defaultArea.classList.add('d-none');
 				emptyArea.classList.remove('d-none');
 				chatDetailArea.classList.add('d-none');
@@ -366,17 +400,16 @@
 			}
 
 			function showDisplay3(targetName) {
+				pageLog('[Display] Switching to Display 3 (Conversation with: ' + targetName + ')', 'info');
 				defaultArea.classList.add('d-none');
 				emptyArea.classList.add('d-none');
 				chatDetailArea.classList.remove('d-none');
 				chatTargetTitle.textContent = targetName;
 				window.SorsChat.activeTarget = targetName;
 
-				// Clear unread badge for this target
 				window.SorsChat.unreadCounts[targetName] = 0;
 				window.SorsChat.updateUnreadBadgesUI();
 
-				// Render stored conversation history
 				var chatMessages = document.getElementById('chatMessages');
 				chatMessages.innerHTML = '';
 				var history = window.SorsChat.conversations[targetName] || [];
@@ -394,7 +427,17 @@
 			function handleSendMessage() {
 				var text = chatInput.value.trim();
 				var target = window.SorsChat.activeTarget;
-				if (!text || !target) return;
+				
+				pageLog('[ChatUI] Send action triggered for target="' + target + '", length=' + text.length, 'info');
+
+				if (!text) {
+					pageLog('[ChatUI] Send ignored: Input text is empty', 'warn');
+					return;
+				}
+				if (!target) {
+					pageLog('[ChatUI] Send ignored: No activeTarget selected', 'error');
+					return;
+				}
 
 				// 1. Insert local text into conversation panel (Left-aligned)
 				window.SorsChat.appendMessageUI(text, true);
@@ -405,19 +448,28 @@
 				}
 				window.SorsChat.conversations[target].push({ sender: 'Me', text: text, isLocal: true });
 
-				// 2. Transmit via Janus (Hooked into call.js)
+				// 2. Transmit via Janus
 				if (typeof sendJanusTextMessage === 'function') {
 					sendJanusTextMessage(target, text);
+				} else {
+					pageLog('[ChatUI] Critical Error: sendJanusTextMessage function is not defined!', 'error');
 				}
 
 				chatInput.value = '';
 			}
 
-			if (chatSendBtn) chatSendBtn.addEventListener('click', handleSendMessage);
+			if (chatSendBtn) {
+				chatSendBtn.addEventListener('click', function() {
+					pageLog('[ChatUI] Send button clicked', 'debug');
+					handleSendMessage();
+				});
+			}
+
 			if (chatInput) {
 				chatInput.addEventListener('keydown', function (e) {
 					if (e.key === 'Enter' && !e.shiftKey) {
 						e.preventDefault();
+						pageLog('[ChatUI] Enter key pressed in textarea', 'debug');
 						handleSendMessage();
 					}
 				});
@@ -436,6 +488,7 @@
 
 			if (chatBackBtn) {
 				chatBackBtn.addEventListener('click', function () {
+					pageLog('[ChatUI] Back button clicked in Display 3', 'debug');
 					showDisplay2();
 				});
 			}
@@ -451,6 +504,7 @@
 						var nameEl = listItem.querySelector('.name');
 						var targetName = nameEl ? nameEl.textContent.trim() : 'Conversation';
 
+						pageLog('[ChatUI] Item selected in Display 2 list: ' + targetName, 'info');
 						showDisplay3(targetName);
 					}
 				}, true);
@@ -460,9 +514,9 @@
 
 	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" onload="pageLog('Bootstrap JS loaded')" onerror="pageLog('FAILED to load Bootstrap JS', 'error')"></script>
 	<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
-	<script src="js/janus.js?ver=1.10" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
-	<script src="js/call.js?ver=1.10" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
-	<script src="js/Sors.Notifications.js?ver=1.10" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
+	<script src="js/janus.js?ver=1.11" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
+	<script src="js/call.js?ver=1.11" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
+	<script src="js/Sors.Notifications.js?ver=1.11" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
 	
 </body>
 
