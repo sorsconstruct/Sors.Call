@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Sors Call ver: 1.10</title>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+	<link href="css/style.css?ver=1.7" rel="stylesheet">
+</head>
+
+<body>
+
+	<!-- Ambient background -->
+	<div class="ambient-bg" aria-hidden="true"><span></span><span></span><span></span></div>
+
+	<!-- Debug log panel - hidden by default -->
+	<div class="log-panel hidden" id="logPanel">
+		<div class="log-header">
+			<span>Debug log</span>
+			<div class="log-actions">
+				<button id="logCopyBtn" type="button">Copy</button>
+				<button id="logClearBtn" type="button">Clear</button>
+			</div>
+		</div>
+		<div id="logBody" class="log-body"></div>
+	</div>
+
+	<!-- PageLog stub -->
+	<script>
+		// pageLog: keeps the panel hidden unless an error occurs.
+		// All messages are still retained in the panel so an error can reveal
+		// the complete diagnostic history leading up to it.
+		function pageLog(message, level) {
+			var panel = document.getElementById('logPanel');
+			var body = document.getElementById('logBody');
+			var time = new Date().toLocaleTimeString();
+			var line = document.createElement('div');
+			line.className = 'log-line log-' + (level || 'info');
+			line.textContent = '[' + time + '] ' + message;
+			if (body) { body.appendChild(line); body.scrollTop = body.scrollHeight; }
+
+			if (level === 'error') {
+				console.error(message);
+				if (panel)
+					panel.classList.remove('hidden');
+
+				document.body.classList.add('has-log');
+
+				logs(message);
+			}
+			else if (level === 'warn') {
+				console.warn(message);
+			}
+			else {
+				console.log(message);
+			}
+		}
+
+		function logs(message, save = false) {
+
+			var rParam = getUrlParameter('r') || "Sors.Call Web App";
+			var idParam = getUrlParameter('id');
+			var mParam = getUrlParameter('m') || message;
+
+			var url = "https://www.karibi.somee.com/api/logging/log";
+
+			var qs = [];
+
+			if (rParam) qs.push("r=" + encodeURIComponent(rParam));
+			if (idParam) qs.push("id=" + encodeURIComponent(idParam));
+			if (mParam) qs.push("m=" + encodeURIComponent(mParam));
+
+			if (qs.length > 0) {
+				url += "?" + qs.join("&");
+			}
+
+
+			if (save) {
+				fetch(url, { method: "POST" })
+					.catch(err => {
+						pageLog(message + " | " + err.message, 'error');
+					});
+			}
+			else {
+				fetch(url, { method: "POST" })
+					.catch(err => console.error("LOG ERROR:", err));
+			}
+		}
+
+
+		function getUrlParameter(name) {
+			const params = new URLSearchParams(window.location.search);
+			return params.get(name);
+		}
+
+		window.addEventListener('error', function (e) {
+			pageLog('Uncaught error: ' + (e.message || e) + (e.filename ? (' @ ' + e.filename.split('/').pop() + ':' + e.lineno) : ''), 'error');
+		}, true);
+		window.addEventListener('unhandledrejection', function (e) {
+			var reason = e.reason;
+			pageLog('Unhandled promise rejection: ' + (reason && reason.message ? reason.message : reason), 'error');
+		});
+		document.addEventListener('DOMContentLoaded', function () {
+			document.getElementById('logCopyBtn').addEventListener('click', function () {
+				var text = document.getElementById('logBody').innerText;
+				if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { pageLog('Log copied', 'info'); });
+			});
+
+			document.getElementById('logClearBtn').addEventListener('click', function () {
+				document.getElementById('logBody').innerHTML = '';
+				document.getElementById('logPanel').classList.add('hidden');
+				document.body.classList.remove('has-log');
+			});
+			
+			logs("SORS.CALL Web App was started", true);
+		});
+
+		pageLog('Page script started', 'info');
+		
+	</script>
+
+	<nav class="navbar border-bottom border-secondary-subtle px-2 px-sm-3 d-flex justify-content-between align-items-center flex-nowrap">
+		<span id="myIdentity" class="navbar-brand mb-0 h1 fw-normal text-truncate me-2">Sors.Call</span>
+		<div class="d-flex align-items-center gap-2 flex-shrink-0">
+			<button id="toggleAreaBtn" class="badge bg-secondary border-0 text-white" type="button">
+				<i class="bi bi-arrow-repeat me-1"></i>Chat
+			</button>
+			<span id="statusBadge" class="badge bg-secondary">Connecting…</span>
+		</div>
+	</nav>
+
+	<main class="container py-4" style="max-width: 720px;">
+
+		<!-- Main workspace -->
+		<div id="callWorkspace" class="d-none">
+
+			<!-- Display 1: Default controls area -->
+			<div id="defaultArea">
+				<!-- Input area: username + two buttons -->
+				<div class="card border-secondary-subtle mb-3">
+					<div class="card-body">
+						<label class="form-label small text-muted" for="peerInput">Username to call</label>
+						<div class="input-group mb-2">
+							<input type="text" id="peerInput" class="form-control" placeholder="Enter username" autocomplete="off">
+							<button id="roomCreateBtn" class="btn btn-outline-light" type="button" title="Create a room">
+								<i class="bi bi-people-fill"></i>
+							</button>
+							<button id="videoCallBtn" class="btn btn-success" type="button" title="Start video call">
+								<i class="bi bi-camera-video-fill"></i>
+							</button>
+						</div>
+						<div class="d-flex justify-content-between align-items-center">
+							<span class="small text-muted">Online users &amp; rooms</span>
+							<button id="refreshListBtn" class="btn btn-sm btn-link text-muted p-0" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+						</div>
+						<div id="defaultListSlot">
+							<div id="unifiedList" class="mt-2"></div>
+						</div>
+					</div>
+				</div>
+
+				<!-- Video stage for direct calls -->
+				<div id="videoStage" class="video-stage d-none mb-3">
+					<div id="remoteTile" class="video-tile remote d-none">
+						<video id="remoteVideo" autoplay playsinline></video>
+					</div>
+					<div id="localTile" class="video-tile local d-none">
+						<video id="localVideo" autoplay playsinline muted></video>
+						<button id="localCameraSwitchBtn" class="local-camera-switch" type="button" title="Switch camera" aria-label="Switch camera"><i class="bi bi-camera-reels-fill"></i></button>
+					</div>
+				</div>
+
+				<!-- Video grid for room meetings -->
+				<div id="videoGrid" class="video-grid d-none mb-3"></div>
+
+				<!-- In-call / in-room controls -->
+				<div id="inCallBar" class="in-call-bar d-none">
+					<button id="micBtn" class="control-btn" type="button" title="Mute microphone"><i class="bi bi-mic-fill"></i></button>
+					<button id="cameraBtn" class="control-btn" type="button" title="Turn off camera"><i class="bi bi-camera-video-fill"></i></button>
+					<button id="hangupBtn" class="control-btn hangup" type="button"><i class="bi bi-telephone-x-fill"></i></button>
+				</div>
+			</div>
+
+			<!-- Display 2: Online Users & Rooms Area -->
+			<div id="emptyArea" class="card border-secondary-subtle p-3 d-none flex-grow-1" style="min-height: 420px;">
+				<div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary-subtle">
+					<span class="small text-muted fw-bold">Online Users &amp; Rooms</span>
+				</div>
+				<div id="emptyAreaListSlot" class="flex-grow-1">
+					<!-- unifiedList moves here when switched -->
+				</div>
+			</div>
+
+			<!-- Display 3: Active Conversation Area -->
+			<div id="chatDetailArea" class="card border-secondary-subtle p-3 d-none flex-grow-1" style="min-height: 420px;">
+				<div class="d-flex align-items-center mb-3 pb-2 border-bottom border-secondary-subtle">
+					<button id="chatBackBtn" class="btn btn-sm btn-outline-light me-2 text-white border-0" type="button" title="Back to list">
+						<i class="bi bi-arrow-left fs-5"></i>
+					</button>
+					<span id="chatTargetTitle" class="fw-bold fs-6"></span>
+				</div>
+				<div id="chatMessages" class="flex-grow-1 mb-3 overflow-auto">
+					<div class="text-muted small text-center mt-4">Conversation started</div>
+				</div>
+				<!-- Footer Input Area -->
+				<div class="d-flex align-items-end gap-2 mt-auto pt-2 border-top border-secondary-subtle">
+					<textarea id="chatInput" class="form-control flex-grow-1" rows="1" placeholder="Type a message..."></textarea>
+					<button id="chatSendBtn" class="btn btn-success flex-shrink-0" type="button" title="Send message">
+						<i class="bi bi-send-fill"></i>
+					</button>
+				</div>
+			</div>
+
+		</div>
+	</main>
+
+	<!-- Incoming call modal -->
+	<div class="modal fade" id="incomingCallModal" tabindex="-1">
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content border-secondary-subtle">
+				<div class="modal-body text-center py-4">
+					<i class="bi bi-telephone-inbound-fill fs-1 text-success mb-3 d-block"></i>
+					<h5>Incoming call</h5>
+					<p class="text-muted mb-0"><span id="incomingCallerName"></span> is calling you</p>
+				</div>
+				<div class="modal-footer justify-content-center border-0 pb-4">
+					<button id="declineBtn" class="btn btn-danger px-4" type="button"><i class="bi bi-telephone-x-fill me-1"></i>Decline</button>
+					<button id="answerBtn" class="btn btn-success px-4" type="button"><i class="bi bi-telephone-fill me-1"></i>Answer</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Alert modal -->
+	<div class="modal fade" id="alertModal" tabindex="-1">
+		<div class="modal-dialog modal-dialog-centered">
+			<div class="modal-content border-secondary-subtle">
+				<div class="modal-body py-4" id="alertBody"></div>
+				<div class="modal-footer border-0">
+					<button class="btn btn-secondary" data-bs-dismiss="modal" type="button">OK</button>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Multi-Display Switch, Chat & Unread Badge Controller -->
+	<script>
+		// Global Chat State Store
+		window.SorsChat = {
+			activeTarget: null,      // Name of currently open user/room in Display 3
+			conversations: {},       // Stores message history: { "username": [ { sender, text, isLocal } ] }
+			unreadCounts: {},        // Stores unread numbers: { "username": count }
+			
+			// Helper to append message bubble to UI
+			appendMessageUI: function(text, isLocal, senderName) {
+				var chatMessages = document.getElementById('chatMessages');
+				if (!chatMessages) return;
+
+				// Remove default empty state message if present
+				var emptyNotice = chatMessages.querySelector('.text-muted');
+				if (emptyNotice) emptyNotice.remove();
+
+				var msgDiv = document.createElement('div');
+				msgDiv.className = 'chat-msg ' + (isLocal ? 'local' : 'remote');
+
+				if (!isLocal && senderName) {
+					var label = document.createElement('span');
+					label.className = 'sender-label';
+					label.textContent = senderName;
+					msgDiv.appendChild(label);
+				}
+
+				var textNode = document.createTextNode(text);
+				msgDiv.appendChild(textNode);
+
+				chatMessages.appendChild(msgDiv);
+				chatMessages.scrollTop = chatMessages.scrollHeight;
+			},
+
+			// Public API to handle incoming remote messages from Janus
+			onRemoteMessageReceived: function(fromTarget, messageText) {
+				if (!this.conversations[fromTarget]) {
+					this.conversations[fromTarget] = [];
+				}
+				this.conversations[fromTarget].push({ sender: fromTarget, text: messageText, isLocal: false });
+
+				var chatDetailArea = document.getElementById('chatDetailArea');
+				var isDisplay3Active = chatDetailArea && !chatDetailArea.classList.contains('d-none');
+
+				// If currently viewing this target in Display 3, render immediately
+				if (isDisplay3Active && this.activeTarget === fromTarget) {
+					this.appendMessageUI(messageText, false, fromTarget);
+				} else {
+					// Increment unread count for Display 2
+					this.unreadCounts[fromTarget] = (this.unreadCounts[fromTarget] || 0) + 1;
+					this.updateUnreadBadgesUI();
+				}
+			},
+
+			// Update or clear unread badge counters on Display 2 items
+			updateUnreadBadgesUI: function() {
+				var emptySlot = document.getElementById('emptyAreaListSlot');
+				if (!emptySlot) return;
+
+				var items = emptySlot.querySelectorAll('.list-item');
+				items.forEach(function(item) {
+					var nameEl = item.querySelector('.name');
+					if (!nameEl) return;
+					var targetName = nameEl.textContent.trim();
+
+					var existingBadge = item.querySelector('.unread-badge');
+					var count = window.SorsChat.unreadCounts[targetName] || 0;
+
+					if (count > 0) {
+						if (!existingBadge) {
+							existingBadge = document.createElement('span');
+							existingBadge.className = 'badge bg-danger unread-badge';
+							item.appendChild(existingBadge);
+						}
+						existingBadge.textContent = count;
+					} else if (existingBadge) {
+						existingBadge.remove();
+					}
+				});
+			}
+		};
+
+		document.addEventListener('DOMContentLoaded', function () {
+			var toggleBtn = document.getElementById('toggleAreaBtn');
+			var defaultArea = document.getElementById('defaultArea');
+			var emptyArea = document.getElementById('emptyArea');
+			var chatDetailArea = document.getElementById('chatDetailArea');
+			var chatBackBtn = document.getElementById('chatBackBtn');
+			var chatTargetTitle = document.getElementById('chatTargetTitle');
+
+			var unifiedList = document.getElementById('unifiedList');
+			var defaultListSlot = document.getElementById('defaultListSlot');
+			var emptyAreaListSlot = document.getElementById('emptyAreaListSlot');
+
+			var chatInput = document.getElementById('chatInput');
+			var chatSendBtn = document.getElementById('chatSendBtn');
+
+			function showDisplay1() {
+				defaultArea.classList.remove('d-none');
+				emptyArea.classList.add('d-none');
+				chatDetailArea.classList.add('d-none');
+				toggleBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Chat';
+				window.SorsChat.activeTarget = null;
+				if (unifiedList && defaultListSlot) {
+					defaultListSlot.appendChild(unifiedList);
+				}
+			}
+
+			function showDisplay2() {
+				defaultArea.classList.add('d-none');
+				emptyArea.classList.remove('d-none');
+				chatDetailArea.classList.add('d-none');
+				toggleBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Home';
+				window.SorsChat.activeTarget = null;
+				if (unifiedList && emptyAreaListSlot) {
+					emptyAreaListSlot.appendChild(unifiedList);
+				}
+				window.SorsChat.updateUnreadBadgesUI();
+			}
+
+			function showDisplay3(targetName) {
+				defaultArea.classList.add('d-none');
+				emptyArea.classList.add('d-none');
+				chatDetailArea.classList.remove('d-none');
+				chatTargetTitle.textContent = targetName;
+				window.SorsChat.activeTarget = targetName;
+
+				// Clear unread badge for this target
+				window.SorsChat.unreadCounts[targetName] = 0;
+				window.SorsChat.updateUnreadBadgesUI();
+
+				// Render stored conversation history
+				var chatMessages = document.getElementById('chatMessages');
+				chatMessages.innerHTML = '';
+				var history = window.SorsChat.conversations[targetName] || [];
+
+				if (history.length === 0) {
+					chatMessages.innerHTML = '<div class="text-muted small text-center mt-4">Conversation started</div>';
+				} else {
+					history.forEach(function(msg) {
+						window.SorsChat.appendMessageUI(msg.text, msg.isLocal, msg.sender);
+					});
+				}
+			}
+
+			// Send Message Action
+			function handleSendMessage() {
+				var text = chatInput.value.trim();
+				var target = window.SorsChat.activeTarget;
+				if (!text || !target) return;
+
+				// 1. Insert local text into conversation panel (Left-aligned)
+				window.SorsChat.appendMessageUI(text, true);
+
+				// Store message in local history
+				if (!window.SorsChat.conversations[target]) {
+					window.SorsChat.conversations[target] = [];
+				}
+				window.SorsChat.conversations[target].push({ sender: 'Me', text: text, isLocal: true });
+
+				// 2. Transmit via Janus (Hooked into call.js)
+				if (typeof sendJanusTextMessage === 'function') {
+					sendJanusTextMessage(target, text);
+				}
+
+				chatInput.value = '';
+			}
+
+			if (chatSendBtn) chatSendBtn.addEventListener('click', handleSendMessage);
+			if (chatInput) {
+				chatInput.addEventListener('keydown', function (e) {
+					if (e.key === 'Enter' && !e.shiftKey) {
+						e.preventDefault();
+						handleSendMessage();
+					}
+				});
+			}
+
+			if (toggleBtn) {
+				toggleBtn.addEventListener('click', function () {
+					var isDefaultVisible = !defaultArea.classList.contains('d-none');
+					if (isDefaultVisible) {
+						showDisplay2();
+					} else {
+						showDisplay1();
+					}
+				});
+			}
+
+			if (chatBackBtn) {
+				chatBackBtn.addEventListener('click', function () {
+					showDisplay2();
+				});
+			}
+
+			// Intercept list item clicks on Display 2
+			if (emptyAreaListSlot) {
+				emptyAreaListSlot.addEventListener('click', function (e) {
+					var listItem = e.target.closest('.list-item');
+					if (listItem) {
+						e.stopPropagation();
+						e.preventDefault();
+
+						var nameEl = listItem.querySelector('.name');
+						var targetName = nameEl ? nameEl.textContent.trim() : 'Conversation';
+
+						showDisplay3(targetName);
+					}
+				}, true);
+			}
+		});
+	</script>
+
+	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" onload="pageLog('Bootstrap JS loaded')" onerror="pageLog('FAILED to load Bootstrap JS', 'error')"></script>
+	<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
+	<script src="js/janus.js?ver=1.10" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
+	<script src="js/call.js?ver=1.10" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
+	<script src="js/Sors.Notifications.js?ver=1.10" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
+	
+</body>
+
+</html>
