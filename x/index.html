@@ -213,7 +213,7 @@
 				</div>
 			</div>
 		</div>
-	</div>
+	</main>
 
 	<!-- Alert modal -->
 	<div class="modal fade" id="alertModal" tabindex="-1">
@@ -229,7 +229,7 @@
 
 	<!-- Multi-Display Switch, Chat & Unread Badge Controller -->
 	<script>
-		// Janus Text Messaging Function with Full Diagnostics
+		// Corrected Janus Text Messaging Function
 		window.sendJanusTextMessage = function(target, text) {
 			pageLog('[ChatEngine] Attempting to send message to target: ' + target, 'info');
 
@@ -241,38 +241,38 @@
 
 			var sent = false;
 
-			// 1. Check direct videocall handle
-			if (typeof callHandle !== 'undefined' && callHandle) {
+			// 1. Direct call handle transmission
+			if (typeof callHandle !== 'undefined' && callHandle && typeof callHandle.data === 'function') {
 				try {
-					pageLog('[ChatEngine] Transmitting via callHandle Data Channel...', 'debug');
-					callHandle.sendData({
+					pageLog('[ChatEngine] Transmitting via callHandle Data Channel (callHandle.data)...', 'debug');
+					callHandle.data({
 						text: JSON.stringify(payload),
-						success: function() { pageLog('[ChatEngine] Message successfully sent via callHandle', 'info'); },
-						error: function(err) { pageLog('[ChatEngine] callHandle sendData error: ' + err, 'warn'); }
+						success: function() { pageLog('[ChatEngine] Message successfully sent via callHandle Data Channel', 'info'); },
+						error: function(err) { pageLog('[ChatEngine] callHandle data channel error: ' + err, 'warn'); }
 					});
 					sent = true;
 				} catch(e) {
-					pageLog('[ChatEngine] Failed callHandle sendData exception: ' + e.message, 'warn');
+					pageLog('[ChatEngine] Failed callHandle.data exception: ' + e.message, 'warn');
 				}
 			}
 
-			// 2. Check videoroom handle
-			if (typeof roomHandle !== 'undefined' && roomHandle && isInRoom) {
+			// 2. Videoroom handle transmission
+			if (typeof roomHandle !== 'undefined' && roomHandle && typeof roomHandle.data === 'function' && typeof isInRoom !== 'undefined' && isInRoom) {
 				try {
-					pageLog('[ChatEngine] Transmitting via roomHandle Data Channel...', 'debug');
-					roomHandle.sendData({
+					pageLog('[ChatEngine] Transmitting via roomHandle Data Channel (roomHandle.data)...', 'debug');
+					roomHandle.data({
 						text: JSON.stringify(payload),
-						success: function() { pageLog('[ChatEngine] Message successfully sent via roomHandle', 'info'); },
-						error: function(err) { pageLog('[ChatEngine] roomHandle sendData error: ' + err, 'warn'); }
+						success: function() { pageLog('[ChatEngine] Message successfully sent via roomHandle Data Channel', 'info'); },
+						error: function(err) { pageLog('[ChatEngine] roomHandle data channel error: ' + err, 'warn'); }
 					});
 					sent = true;
 				} catch(e) {
-					pageLog('[ChatEngine] Failed roomHandle sendData exception: ' + e.message, 'warn');
+					pageLog('[ChatEngine] Failed roomHandle.data exception: ' + e.message, 'warn');
 				}
 			}
 
 			if (!sent) {
-				pageLog('[ChatEngine] Warning: Message stored locally, but no active Janus Data Channel or Session handle was connected to transmit.', 'warn');
+				pageLog('[ChatEngine] Notice: Message stored locally. (Active PeerConnection DataChannel is not currently established with target "' + target + '")', 'warn');
 			}
 		};
 
@@ -514,9 +514,9 @@
 
 	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" onload="pageLog('Bootstrap JS loaded')" onerror="pageLog('FAILED to load Bootstrap JS', 'error')"></script>
 	<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
-	<script src="js/janus.js?ver=1.11" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
-	<script src="js/call.js?ver=1.11" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
-	<script src="js/Sors.Notifications.js?ver=1.11" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
+	<script src="js/janus.js?ver=1.10" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
+	<script src="js/call.js?ver=1.10" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
+	<script src="js/Sors.Notifications.js?ver=1.10" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
 	
 </body>
 
