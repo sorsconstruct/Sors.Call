@@ -362,6 +362,10 @@ function attachCallPlugin() {
 			callHandle = handle;
 			pageLog('VideoCall attached', 'info');
 			registerRandomUser();
+			
+			if (window.SorsChat && typeof window.SorsChat.setDataChannelHandle === 'function') {
+               window.SorsChat.setDataChannelHandle(callHandle);
+            }
 		},
 		error: function (error) {
 			pageLog('VideoCall attach error: ' + error, 'error');
@@ -383,7 +387,25 @@ function attachCallPlugin() {
 		oncleanup: function () {
 			pageLog('Call cleanup', 'info');
 			onCallEnded();
-		}
+		},
+		ondata: function (data) {
+            pageLog("Data Channel payload received: " + data, "info");
+                try {
+                    var packet = JSON.parse(data);
+                    var text = packet.text || data;
+                    var sender = packet.sender || state.activePeer || "Remote";
+
+                    if (window.SorsChat && typeof window.SorsChat.onRemoteMessageReceived === 'function') {
+                        window.SorsChat.onRemoteMessageReceived(sender, text);
+                    }
+                } 
+                catch (e) {
+                    if (window.SorsChat && typeof window.SorsChat.onRemoteMessageReceived === 'function') {
+                        window.SorsChat.onRemoteMessageReceived(state.activePeer || "Remote", data);
+                    }
+                }
+            }
+            
 	});
 }
 
@@ -670,7 +692,7 @@ function listParticipants() {
 function publishRoomStream(handle) {
 	pageLog('Publishing stream to room', 'info');
 	handle.createOffer({
-		media: { audio: true, video: true },
+		media: { audio: true, video: true, data: true  },
 		success: function (jsep) {
 			handle.send({ message: { request: 'publish' }, jsep: jsep });
 		},
@@ -748,7 +770,7 @@ function createRoomSubscriber(feedId, displayName) {
 				if (jsep) {
 					subHandle.createAnswer({
 						jsep: jsep,
-						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
+						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true, data: true  },
 						success: function (answerJsep) {
 							subHandle.send({
 								message: {
@@ -876,7 +898,7 @@ function startCall(username) {
 	updateHangupButton('call');
 
 	callHandle.createOffer({
-		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true },
+		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true, data: true  },
 		success: function (jsep) {
 			callHandle.send({ message: { request: 'call', username: username }, jsep: jsep });
 		},
@@ -898,7 +920,7 @@ function answerIncomingCall() {
 
 	callHandle.createAnswer({
 		jsep: pendingIncomingJsep,
-		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true },
+		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true, data: true  },
 		success: function (jsep) {
 			callHandle.send({ message: { request: 'accept' }, jsep: jsep });
 			setStatus('In call with ' + peerUsername, 'bg-success');
