@@ -388,24 +388,24 @@ function attachCallPlugin() {
 			pageLog('Call cleanup', 'info');
 			onCallEnded();
 		},
-		ondata: function (data) {
+        ondata: function (data) {
             pageLog("Data Channel payload received: " + data, "info");
-                try {
-                    var packet = JSON.parse(data);
-                    var text = packet.text || data;
-                    var sender = packet.sender || state.activePeer || "Remote";
-
-                    if (window.SorsChat && typeof window.SorsChat.onRemoteMessageReceived === 'function') {
-                        window.SorsChat.onRemoteMessageReceived(sender, text);
-                    }
-                } 
-                catch (e) {
-                    if (window.SorsChat && typeof window.SorsChat.onRemoteMessageReceived === 'function') {
-                        window.SorsChat.onRemoteMessageReceived(state.activePeer || "Remote", data);
-                    }
+             try {
+                var packet = JSON.parse(data);
+                var text = packet.text || data;
+                var sender = packet.sender || peerUsername || "Remote";
+                if (window.SorsChat && typeof window.SorsChat.onRemoteMessageReceived === 'function') {
+                    window.SorsChat.onRemoteMessageReceived(sender, text);
                 }
-            }
-            
+              } 
+              catch (e) {
+                  pageLog("Data channel parse error: " + e.message, "warn");
+                  if (window.SorsChat && typeof window.SorsChat.onRemoteMessageReceived === 'function') {
+                      window.SorsChat.onRemoteMessageReceived(peerUsername || "Remote", data);
+                  }
+              }
+          }
+
 	});
 }
 
