@@ -213,7 +213,7 @@
 				</div>
 			</div>
 		</div>
-	</div>
+	</main>
 
 	<!-- Alert modal -->
 	<div class="modal fade" id="alertModal" tabindex="-1">
@@ -229,9 +229,9 @@
 
 	<!-- Multi-Display Switch, Chat & Unread Badge Controller -->
 	<script>
-		// Safe Janus Text Messaging Function with DataChannel Pre-check & Signaling Fallback
+		// Safe Janus Text Messaging Function
 		window.sendJanusTextMessage = function(target, text) {
-			pageLog('[ChatEngine] Attempting to send message to target: ' + target, 'info');
+			pageLog('[ChatEngine] Processing message transmission to target: ' + target, 'info');
 
 			var payload = {
 				text: text,
@@ -241,7 +241,6 @@
 
 			var sent = false;
 
-			// Helper to check if a handle has an active, open WebRTC Data Channel
 			function isDataChannelReady(handle) {
 				return handle && 
 					   handle.webrtcStuff && 
@@ -249,55 +248,38 @@
 					   handle.webrtcStuff.dataChannel.readyState === 'open';
 			}
 
-			// 1. Direct call handle transmission
-			if (typeof callHandle !== 'undefined' && callHandle) {
-				if (isDataChannelReady(callHandle)) {
-					try {
-						pageLog('[ChatEngine] Transmitting via active callHandle Data Channel...', 'debug');
-						callHandle.data({
-							text: JSON.stringify(payload),
-							success: function() { pageLog('[ChatEngine] Message successfully sent via callHandle Data Channel', 'info'); },
-							error: function(err) { pageLog('[ChatEngine] callHandle data channel error: ' + err, 'warn'); }
-						});
-						sent = true;
-					} catch(e) {
-						pageLog('[ChatEngine] Failed callHandle.data exception: ' + e.message, 'warn');
-					}
-				} else {
-					// Fallback: Send message request via Janus signaling WebSocket protocol
-					try {
-						pageLog('[ChatEngine] WebRTC DataChannel not active on callHandle. Attempting Janus plugin message signaling...', 'debug');
-						callHandle.send({
-							message: { request: 'message', username: target, text: text },
-							success: function() { pageLog('[ChatEngine] Message signaling request sent via Janus WebSocket', 'info'); },
-							error: function(err) { pageLog('[ChatEngine] Plugin message signaling error: ' + err, 'warn'); }
-						});
-						sent = true;
-					} catch(e) {
-						pageLog('[ChatEngine] Failed callHandle signaling fallback exception: ' + e.message, 'warn');
-					}
+			// 1. Direct call Data Channel transmission
+			if (typeof callHandle !== 'undefined' && isDataChannelReady(callHandle)) {
+				try {
+					pageLog('[ChatEngine] Transmitting via active callHandle Data Channel...', 'debug');
+					callHandle.data({
+						text: JSON.stringify(payload),
+						success: function() { pageLog('[ChatEngine] Message successfully sent via callHandle Data Channel', 'info'); },
+						error: function(err) { pageLog('[ChatEngine] callHandle Data Channel error: ' + err, 'warn'); }
+					});
+					sent = true;
+				} catch(e) {
+					pageLog('[ChatEngine] Exception on callHandle.data: ' + e.message, 'warn');
 				}
 			}
 
-			// 2. Videoroom handle transmission
-			if (!sent && typeof roomHandle !== 'undefined' && roomHandle && typeof isInRoom !== 'undefined' && isInRoom) {
-				if (isDataChannelReady(roomHandle)) {
-					try {
-						pageLog('[ChatEngine] Transmitting via active roomHandle Data Channel...', 'debug');
-						roomHandle.data({
-							text: JSON.stringify(payload),
-							success: function() { pageLog('[ChatEngine] Message successfully sent via roomHandle Data Channel', 'info'); },
-							error: function(err) { pageLog('[ChatEngine] roomHandle data channel error: ' + err, 'warn'); }
-						});
-						sent = true;
-					} catch(e) {
-						pageLog('[ChatEngine] Failed roomHandle.data exception: ' + e.message, 'warn');
-					}
+			// 2. Videoroom Data Channel transmission
+			if (!sent && typeof roomHandle !== 'undefined' && typeof isInRoom !== 'undefined' && isInRoom && isDataChannelReady(roomHandle)) {
+				try {
+					pageLog('[ChatEngine] Transmitting via active roomHandle Data Channel...', 'debug');
+					roomHandle.data({
+						text: JSON.stringify(payload),
+						success: function() { pageLog('[ChatEngine] Message successfully sent via roomHandle Data Channel', 'info'); },
+						error: function(err) { pageLog('[ChatEngine] roomHandle Data Channel error: ' + err, 'warn'); }
+					});
+					sent = true;
+				} catch(e) {
+					pageLog('[ChatEngine] Exception on roomHandle.data: ' + e.message, 'warn');
 				}
 			}
 
 			if (!sent) {
-				pageLog('[ChatEngine] Notice: Message saved to local history. (No active WebRTC DataChannel connection established with "' + target + '")', 'warn');
+				pageLog('[ChatEngine] Notice: Target "' + target + '" is not in an active WebRTC Data Channel session. Message saved in local chat history.', 'info');
 			}
 		};
 
@@ -473,7 +455,7 @@
 				}
 				window.SorsChat.conversations[target].push({ sender: 'Me', text: text, isLocal: true });
 
-				// 2. Transmit via Janus
+				// 2. Transmit via Janus DataChannel (if active)
 				if (typeof sendJanusTextMessage === 'function') {
 					sendJanusTextMessage(target, text);
 				} else {
