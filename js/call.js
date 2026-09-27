@@ -66,17 +66,11 @@ function setStatus(text, variant) {
 
 function notifyIncomingCall(fromUser) {
 	if (!('Notification' in window) || Notification.permission !== 'granted') return;
-	try { new Notification('Incoming call', { body: fromUser + ' is calling you' }); } catch(e) {}
+	try { new Notification('Incoming call', { body: fromUser + ' is calling you' }); } catch (e) {}
 }
 
 // ============================================================
 // Sound Engine — hybrid (mp3 first, Web Audio fallback)
-//
-// Design:
-//   * Slot reserved SYNCHRONOUSLY in play() so stop() can cancel
-//     even if the mp3 promise has not settled.
-//   * Only profiles with `loop: true` create a repeating interval.
-//     One-shot chimes (userJoined, hangup) play exactly once.
 // ============================================================
 const SOUND_PROFILES = {
 	incoming: {
@@ -94,13 +88,11 @@ const SOUND_PROFILES = {
 	userJoined: {
 		mp3: null,
 		vibrate: null,
-		// no loop -> plays once
 		webAudio: { freqs: [880], burstMs: 150, gapMs: 0, gain: 0.10 }
 	},
 	hangup: {
 		mp3: null,
 		vibrate: null,
-		// no loop -> plays once (two short bursts inside one trigger)
 		webAudio: { freqs: [600, 400], burstMs: 200, gapMs: 100, gain: 0.12, repeatBursts: 2 }
 	}
 };
@@ -161,11 +153,8 @@ const SoundEngine = (function () {
 		const profile = SOUND_PROFILES[name];
 		if (!profile) { pageLog('Unknown sound: ' + name, 'warn'); return; }
 
-		// Stop any previous instance of this same sound first
 		stop(name);
 
-		// Reserve a slot SYNCHRONOUSLY so stop() can cancel this attempt
-		// even if it is called before the mp3 promise settles.
 		const slot = { intervalId: null, oscillators: [], cancelled: false };
 		active[name] = slot;
 
@@ -260,7 +249,6 @@ const SoundEngine = (function () {
 
 		burst();
 
-		// Only loop when the profile explicitly opts in.
 		if (profile.loop === true && spec.gapMs > 0) {
 			slot.intervalId = setInterval(burst, spec.burstMs + spec.gapMs);
 		}
@@ -465,6 +453,13 @@ function onCallMessage(msg, jsep) {
 			myUsername = result['username'];
 			setStatus('Ready', 'bg-success');
 			refreshList();
+			// Chat is transport-independent from Janus. Hand the username to SorsChat so
+			// it can open its own SignalR connection to the chat hub.
+			if (window.SorsChat && typeof window.SorsChat.init === 'function') {
+				window.SorsChat.init(myUsername).catch(function (e) {
+					pageLog('[Chat] init failed: ' + e.message, 'error');
+				});
+			}
 			break;
 		case 'calling':
 			setStatus('Ringing ' + peerUsername + '…', 'bg-warning');
@@ -670,7 +665,7 @@ function listParticipants() {
 function publishRoomStream(handle) {
 	pageLog('Publishing stream to room', 'info');
 	handle.createOffer({
-		media: { audio: true, video: true },
+		media: { audio: true, video: true, data: true },
 		success: function (jsep) {
 			handle.send({ message: { request: 'publish' }, jsep: jsep });
 		},
@@ -715,7 +710,7 @@ function onRoomLocalStream(stream) {
 }
 
 // ============================================================
-// Subscribers — synchronous reservation prevents duplicates
+// Subscribers
 // ============================================================
 function createRoomSubscriber(feedId, displayName) {
 	if (subscribers[feedId]) {
@@ -743,12 +738,12 @@ function createRoomSubscriber(feedId, displayName) {
 			sub.handle = subHandle;
 			sub.pending = false;
 
-			subHandle.onmessage = function(msg, jsep) {
+			subHandle.onmessage = function (msg, jsep) {
 				pageLog('Subscriber message for ' + feedId + ': ' + JSON.stringify(msg), 'debug');
 				if (jsep) {
 					subHandle.createAnswer({
 						jsep: jsep,
-						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true },
+						media: { audioSend: false, audioRecv: true, videoSend: false, videoRecv: true, data: true },
 						success: function (answerJsep) {
 							subHandle.send({
 								message: {
@@ -796,7 +791,6 @@ function createRoomSubscriber(feedId, displayName) {
 			video.srcObject = stream;
 			const label = document.createElement('div');
 			label.className = 'tile-label';
-			// label.textContent = sub.display || 'Unknown';
 			label.textContent = (sub.display || 'Unknown').split('@')[0];
 			tile.appendChild(video);
 			tile.appendChild(label);
@@ -817,7 +811,7 @@ function createRoomSubscriber(feedId, displayName) {
 function removeRoomSubscriber(feedId) {
 	const sub = subscribers[feedId];
 	if (!sub) return;
-	delete subscribers[feedId];    // delete FIRST to break recursion
+	delete subscribers[feedId];
 	if (sub.element && sub.element.parentNode) {
 		sub.element.parentNode.removeChild(sub.element);
 	}
@@ -876,7 +870,7 @@ function startCall(username) {
 	updateHangupButton('call');
 
 	callHandle.createOffer({
-		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true },
+		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true, data: true },
 		success: function (jsep) {
 			callHandle.send({ message: { request: 'call', username: username }, jsep: jsep });
 		},
@@ -898,7 +892,7 @@ function answerIncomingCall() {
 
 	callHandle.createAnswer({
 		jsep: pendingIncomingJsep,
-		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true },
+		media: { audioSend: true, audioRecv: true, videoSend: true, videoRecv: true, data: true },
 		success: function (jsep) {
 			callHandle.send({ message: { request: 'accept' }, jsep: jsep });
 			setStatus('In call with ' + peerUsername, 'bg-success');
@@ -923,13 +917,10 @@ function declineIncomingCall() {
 	peerUsername = null;
 }
 
-// Works while the call is still ringing AND once it is connected.
 function hangupCall() {
 	if (!callHandle) return;
 	if (!peerUsername && !isInCall) return;
 
-	// Stop the outgoing ring first, then send the hangup, then play the
-	// short "call ended" chime once.
 	stopRingback();
 	callHandle.send({ message: { request: 'hangup' } });
 	SoundEngine.play('hangup');
@@ -1027,13 +1018,17 @@ function renderUnifiedList() {
 
 	const otherUsers = users.filter(function (u) { return u !== myUsername; });
 
+	// Per-item click handling now lives in the app shell (index.html).
+	// We only set data-* attributes here so the shell knows what was clicked.
 	otherUsers.forEach(function (name) {
 		const item = document.createElement('span');
 		item.className = 'list-item user';
-		// item.innerHTML = '<span class="icon">👤</span><span class="name">' + name + '</span>';
+		item.setAttribute('data-chat-type', 'user');
+		item.setAttribute('data-chat-id',   name);
+		item.setAttribute('data-chat-label', name);
+		item.setAttribute('data-chat-key',  'user:' + name);
 		item.innerHTML = '<span class="icon"><i class="bi bi-person-fill" style="color:#4db966;"></i></span>' +
-                         '<span class="name">' + name + '</span>';
-		item.addEventListener('click', function () { startCall(name); });
+		                 '<span class="name">' + name + '</span>';
 		container.appendChild(item);
 	});
 
@@ -1042,10 +1037,12 @@ function renderUnifiedList() {
 		const description = room.description || 'Room ' + roomId;
 		const item = document.createElement('span');
 		item.className = 'list-item room';
-		// item.innerHTML = '<span class="icon">👥</span><span class="name">' + description + '</span>';
+		item.setAttribute('data-chat-type', 'room');
+		item.setAttribute('data-chat-id',   String(roomId));
+		item.setAttribute('data-chat-label', description);
+		item.setAttribute('data-chat-key',  'room:' + roomId);
 		item.innerHTML = '<span class="icon"><i class="bi bi-people-fill" style="color:#000; filter:grayscale(100%);"></i></span>' +
-                         '<span class="name">' + description + '</span>';
-		item.addEventListener('click', function () { joinRoom(roomId); });
+		                 '<span class="name">' + description + '</span>';
 		container.appendChild(item);
 	});
 
@@ -1116,9 +1113,6 @@ function getCameraSender(handle) {
 }
 
 async function acquireNextCamera(devices, currentTrack, currentId, currentFacing) {
-	// Read facingMode BEFORE the old track is stopped. Some Android browsers
-	// clear/alter track settings after stop(), which previously made wantedFacing
-	// become '(unknown)' and caused us to select another FRONT camera.
 	const settings = currentTrack && currentTrack.getSettings ? currentTrack.getSettings() : {};
 	const facing = currentFacing || settings.facingMode || '';
 	const currentDevice = devices.find(function (device) {
@@ -1126,16 +1120,9 @@ async function acquireNextCamera(devices, currentTrack, currentId, currentFacing
 	});
 	const currentLabel = currentDevice ? (currentDevice.label || '') : (currentTrack ? currentTrack.label || '' : '');
 
-	// IMPORTANT on Android/mobile browsers:
-	// Some devices cannot open camera B while camera A is still actively capturing.
-	// The old implementation tried getUserMedia() first and therefore received
-	// NotReadableError. The caller now stops the current track before entering here.
 	const wanted = facing === 'user' ? 'environment' : (facing === 'environment' ? 'user' : '');
 	pageLog('[CameraSwitch] acquireNextCamera: current=' + currentLabel + ', wantedFacing=' + (wanted || '(unknown)'), 'debug');
 
-	// Build candidates. Prefer the opposite-facing cameras first. The labels are
-	// useful on Android because enumerateDevices() may expose several physical
-	// camera IDs for the same front/back direction.
 	let candidates = devices.filter(function (device) {
 		return device.deviceId && device.deviceId !== currentId;
 	});
@@ -1150,17 +1137,10 @@ async function acquireNextCamera(devices, currentTrack, currentId, currentFacing
 		const otherCandidates = candidates.filter(function (device) {
 			return wantedCandidates.indexOf(device) < 0;
 		});
-		// IMPORTANT: opposite-facing candidates are mandatory priority.
-		// Do not accidentally switch front -> front just because Android exposes
-		// several logical front camera IDs.
 		candidates = wantedCandidates.concat(otherCandidates);
 		pageLog('[CameraSwitch] Opposite-facing candidates=' + wantedCandidates.length + ', fallback candidates=' + otherCandidates.length, 'debug');
-		wantedCandidates.forEach(function (device, i) {
-			pageLog('[CameraSwitch] oppositeCandidate[' + i + ']: ' + (device.label || '(no label)') + ', id=' + device.deviceId, 'debug');
-		});
 	}
 
-	// First try the facing constraint. This is preferable to guessing a device ID.
 	if (wanted) {
 		pageLog('[CameraSwitch] Trying facingMode=' + wanted + ' after releasing current camera', 'info');
 		try {
@@ -1181,8 +1161,6 @@ async function acquireNextCamera(devices, currentTrack, currentId, currentFacing
 		}
 	}
 
-	// Fall back to explicit device IDs. Try every other camera, not only the next
-	// array item, because browsers can enumerate multiple cameras in arbitrary order.
 	for (let i = 0; i < candidates.length; i++) {
 		const device = candidates[i];
 		pageLog('[CameraSwitch] Trying deviceId[' + i + ']=' + device.deviceId + ', label=' +
@@ -1270,8 +1248,6 @@ async function switchLocalCamera() {
 	let acquired = null;
 	let oldTrackStopped = false;
 	try {
-		// Android/WebView frequently returns NotReadableError when two camera
-		// sources are opened simultaneously. Release the active camera FIRST.
 		pageLog('[CameraSwitch] Stopping current camera track before opening the new camera', 'info');
 		currentTrack.stop();
 		oldTrackStopped = true;
@@ -1322,8 +1298,6 @@ async function switchLocalCamera() {
 		if (acquired && acquired.track) {
 			try { acquired.track.stop(); } catch (ignore) {}
 		}
-		// If the new camera was acquired but replaceTrack failed, try to restore
-		// the original source so the call is not left without local video.
 		if (oldTrackStopped) {
 			const restored = await reacquireCamera(currentId, settings);
 			if (restored && restored.track) {

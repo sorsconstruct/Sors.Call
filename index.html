@@ -4,17 +4,10 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Sors Call ver: 1.10</title>
+	<title>Sors Call ver: 1.11</title>
 	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 	<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-	<link href="css/style.css?ver=1.7" rel="stylesheet">
-	<style>
-		/* Hide log panel by default */
-		.log-panel.hidden {
-			display: none;
-		}
-	</style>
-	
+	<link href="css/style.css?ver=1.8" rel="stylesheet">
 </head>
 
 <body>
@@ -37,8 +30,6 @@
 	<!-- PageLog stub -->
 	<script>
 		// pageLog: keeps the panel hidden unless an error occurs.
-		// All messages are still retained in the panel so an error can reveal
-		// the complete diagnostic history leading up to it.
 		function pageLog(message, level) {
 			var panel = document.getElementById('logPanel');
 			var body = document.getElementById('logBody');
@@ -50,52 +41,37 @@
 
 			if (level === 'error') {
 				console.error(message);
-				if (panel)
-					panel.classList.remove('hidden');
-
+				if (panel) panel.classList.remove('hidden');
 				document.body.classList.add('has-log');
-
 				logs(message);
-			}
-			else if (level === 'warn') {
+			} else if (level === 'warn') {
 				console.warn(message);
-			}
-			else {
+			} else {
 				console.log(message);
 			}
 		}
 
 		function logs(message, save = false) {
-
 			var rParam = getUrlParameter('r') || "Sors.Call Web App";
 			var idParam = getUrlParameter('id');
 			var mParam = getUrlParameter('m') || message;
-
 			var url = "https://www.karibi.somee.com/api/logging/log";
-
 			var qs = [];
 
 			if (rParam) qs.push("r=" + encodeURIComponent(rParam));
 			if (idParam) qs.push("id=" + encodeURIComponent(idParam));
 			if (mParam) qs.push("m=" + encodeURIComponent(mParam));
 
-			if (qs.length > 0) {
-				url += "?" + qs.join("&");
-			}
-
+			if (qs.length > 0) url += "?" + qs.join("&");
 
 			if (save) {
 				fetch(url, { method: "POST" })
-					.catch(err => {
-						pageLog(message + " | " + err.message, 'error');
-					});
-			}
-			else {
+					.catch(err => pageLog(message + " | " + err.message, 'error'));
+			} else {
 				fetch(url, { method: "POST" })
 					.catch(err => console.error("LOG ERROR:", err));
 			}
 		}
-
 
 		function getUrlParameter(name) {
 			const params = new URLSearchParams(window.location.search);
@@ -120,17 +96,21 @@
 				document.getElementById('logPanel').classList.add('hidden');
 				document.body.classList.remove('has-log');
 			});
-			
+
 			logs("SORS.CALL Web App was started", true);
 		});
 
 		pageLog('Page script started', 'info');
-		
 	</script>
 
-	<nav class="navbar border-bottom border-secondary-subtle px-3">
-		<span id="myIdentity" class="navbar-brand mb-0 h1 fw-normal">Sors.Call</span>
-		<span id="statusBadge" class="badge bg-secondary">Connecting…</span>
+	<nav class="navbar border-bottom border-secondary-subtle px-2 px-sm-3 d-flex justify-content-between align-items-center flex-nowrap">
+		<span id="myIdentity" class="navbar-brand mb-0 h1 fw-normal text-truncate me-2">Sors.Call</span>
+		<div class="d-flex align-items-center gap-2 flex-shrink-0">
+			<button id="toggleAreaBtn" class="badge bg-secondary border-0 text-white" type="button">
+				<i class="bi bi-arrow-repeat me-1"></i>Chat
+			</button>
+			<span id="statusBadge" class="badge bg-secondary">Connecting…</span>
+		</div>
 	</nav>
 
 	<main class="container py-4" style="max-width: 720px;">
@@ -138,47 +118,87 @@
 		<!-- Main workspace -->
 		<div id="callWorkspace" class="d-none">
 
-			<!-- Input area: username + two buttons -->
-			<div class="card border-secondary-subtle mb-3">
-				<div class="card-body">
-					<label class="form-label small text-muted" for="peerInput">Username to call</label>
-					<div class="input-group mb-2">
-						<input type="text" id="peerInput" class="form-control" placeholder="Enter username" autocomplete="off">
-						<button id="roomCreateBtn" class="btn btn-outline-light" type="button" title="Create a room">
-							<i class="bi bi-people-fill"></i>
-						</button>
-						<button id="videoCallBtn" class="btn btn-success" type="button" title="Start video call">
-							<i class="bi bi-camera-video-fill"></i>
-						</button>
+			<!-- Display 1: Default controls area -->
+			<div id="defaultArea">
+				<!-- Input area: username + two buttons -->
+				<div class="card border-secondary-subtle mb-3">
+					<div class="card-body">
+						<label class="form-label small text-muted" for="peerInput">Username to call</label>
+						<div class="input-group mb-2">
+							<input type="text" id="peerInput" class="form-control" placeholder="Enter username" autocomplete="off">
+							<button id="roomCreateBtn" class="btn btn-outline-light" type="button" title="Create a room">
+								<i class="bi bi-people-fill"></i>
+							</button>
+							<button id="videoCallBtn" class="btn btn-success" type="button" title="Start video call">
+								<i class="bi bi-camera-video-fill"></i>
+							</button>
+						</div>
+						<div class="d-flex justify-content-between align-items-center">
+							<span class="small text-muted">Online users &amp; rooms</span>
+							<button id="refreshListBtn" class="btn btn-sm btn-link text-muted p-0" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+						</div>
+						<div id="defaultListSlot">
+							<div id="unifiedList" class="mt-2"></div>
+						</div>
 					</div>
-					<div class="d-flex justify-content-between align-items-center">
-						<span class="small text-muted">Online users &amp; rooms</span>
-						<button id="refreshListBtn" class="btn btn-sm btn-link text-muted p-0" type="button" title="Refresh"><i class="bi bi-arrow-clockwise"></i></button>
+				</div>
+
+				<!-- Video stage for direct calls -->
+				<div id="videoStage" class="video-stage d-none mb-3">
+					<div id="remoteTile" class="video-tile remote d-none">
+						<video id="remoteVideo" autoplay playsinline></video>
 					</div>
-					<div id="unifiedList" class="mt-2"></div>
+					<div id="localTile" class="video-tile local d-none">
+						<video id="localVideo" autoplay playsinline muted></video>
+						<button id="localCameraSwitchBtn" class="local-camera-switch" type="button" title="Switch camera" aria-label="Switch camera"><i class="bi bi-camera-reels-fill"></i></button>
+					</div>
+				</div>
+
+				<!-- Video grid for room meetings -->
+				<div id="videoGrid" class="video-grid d-none mb-3"></div>
+
+				<!-- In-call / in-room controls -->
+				<div id="inCallBar" class="in-call-bar d-none">
+					<button id="micBtn" class="control-btn" type="button" title="Mute microphone"><i class="bi bi-mic-fill"></i></button>
+					<button id="cameraBtn" class="control-btn" type="button" title="Turn off camera"><i class="bi bi-camera-video-fill"></i></button>
+					<button id="hangupBtn" class="control-btn hangup" type="button"><i class="bi bi-telephone-x-fill"></i></button>
 				</div>
 			</div>
 
-			<!-- Video stage for direct calls -->
-			<div id="videoStage" class="video-stage d-none mb-3">
-				<div id="remoteTile" class="video-tile remote d-none">
-					<video id="remoteVideo" autoplay playsinline></video>
+			<!-- Display 2: Online Users & Rooms Area -->
+			<div id="emptyArea" class="card border-secondary-subtle p-3 d-none flex-grow-1" style="min-height: 420px;">
+				<div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary-subtle">
+					<span class="small text-muted fw-bold">Online Users &amp; Rooms</span>
 				</div>
-				<div id="localTile" class="video-tile local d-none">
-					<video id="localVideo" autoplay playsinline muted></video>
-					<button id="localCameraSwitchBtn" class="local-camera-switch" type="button" title="Switch camera" aria-label="Switch camera"><i class="bi bi-camera-reels-fill"></i></button>
+				<div id="emptyAreaListSlot" class="flex-grow-1">
+					<!-- unifiedList moves here when switched -->
 				</div>
 			</div>
 
-			<!-- Video grid for room meetings -->
-			<div id="videoGrid" class="video-grid d-none mb-3"></div>
-
-			<!-- In-call / in-room controls -->
-			<div id="inCallBar" class="in-call-bar d-none">
-				<button id="micBtn" class="control-btn" type="button" title="Mute microphone"><i class="bi bi-mic-fill"></i></button>
-				<button id="cameraBtn" class="control-btn" type="button" title="Turn off camera"><i class="bi bi-camera-video-fill"></i></button>
-				<button id="hangupBtn" class="control-btn hangup" type="button"><i class="bi bi-telephone-x-fill"></i></button>
+			<!-- Display 3: Active Conversation Area -->
+			<div id="chatDetailArea" class="card border-secondary-subtle p-3 d-none flex-grow-1" style="min-height: 420px;">
+				<div class="d-flex align-items-center mb-3 pb-2 border-bottom border-secondary-subtle">
+					<button id="chatBackBtn" class="btn btn-sm btn-outline-light me-2 text-white border-0" type="button" title="Back to list">
+						<i class="bi bi-arrow-left fs-5"></i>
+					</button>
+					<span id="chatTargetTitle" class="fw-bold fs-6"></span>
+				</div>
+				<div id="chatMessages" class="flex-grow-1 mb-3 overflow-auto">
+					<div class="text-muted small text-center mt-4">Conversation started</div>
+				</div>
+				<!-- Footer Input Area -->
+				<div class="d-flex align-items-end gap-2 mt-auto pt-2 border-top border-secondary-subtle">
+					<button id="chatAttachBtn" class="btn btn-outline-light flex-shrink-0" type="button" title="Attach file">
+						<i class="bi bi-paperclip"></i>
+					</button>
+					<input type="file" id="chatFileInput" class="d-none">
+					<textarea id="chatInput" class="form-control flex-grow-1" rows="1" placeholder="Type a message..."></textarea>
+					<button id="chatSendBtn" class="btn btn-success flex-shrink-0" type="button" title="Send message">
+						<i class="bi bi-send-fill"></i>
+					</button>
+				</div>
 			</div>
+
 		</div>
 	</main>
 
@@ -211,12 +231,119 @@
 		</div>
 	</div>
 
+	<!-- App shell: display switching only. Chat lives in js/chat.js -->
+	<script>
+		document.addEventListener('DOMContentLoaded', function () {
+			// ---- Configure the chat API here if it lives on another origin ----
+			if (window.SorsChat && typeof window.SorsChat.setConfig === 'function') {
+				window.SorsChat.setConfig({
+					apiBase: '/api',
+					hubUrl:  '/hubs/chat'
+					// Example for a different origin:
+					// apiBase: 'https://api.example.com/api',
+					// hubUrl:  'https://api.example.com/hubs/chat'
+				});
+			}
+
+			var toggleBtn        = document.getElementById('toggleAreaBtn');
+			var defaultArea      = document.getElementById('defaultArea');
+			var emptyArea        = document.getElementById('emptyArea');
+			var chatDetailArea   = document.getElementById('chatDetailArea');
+			var chatBackBtn      = document.getElementById('chatBackBtn');
+			var chatTargetTitle  = document.getElementById('chatTargetTitle');
+			var unifiedList      = document.getElementById('unifiedList');
+			var defaultListSlot  = document.getElementById('defaultListSlot');
+			var emptyAreaListSlot= document.getElementById('emptyAreaListSlot');
+
+			function showDisplay1() {
+				pageLog('[Display] Switching to Display 1 (Home)', 'info');
+				defaultArea.classList.remove('d-none');
+				emptyArea.classList.add('d-none');
+				chatDetailArea.classList.add('d-none');
+				toggleBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Chat';
+				if (window.SorsChat && typeof window.SorsChat.closeConversation === 'function') {
+					window.SorsChat.closeConversation();
+				}
+				if (unifiedList && defaultListSlot) defaultListSlot.appendChild(unifiedList);
+			}
+
+			function showDisplay2() {
+				pageLog('[Display] Switching to Display 2 (Chat List)', 'info');
+				defaultArea.classList.add('d-none');
+				emptyArea.classList.remove('d-none');
+				chatDetailArea.classList.add('d-none');
+				toggleBtn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Home';
+				if (window.SorsChat && typeof window.SorsChat.closeConversation === 'function') {
+					window.SorsChat.closeConversation();
+				}
+				if (unifiedList && emptyAreaListSlot) emptyAreaListSlot.appendChild(unifiedList);
+				if (window.SorsChat && typeof window.SorsChat.refreshBadges === 'function') {
+					window.SorsChat.refreshBadges();
+				}
+			}
+
+			function showDisplay3(type, id, label) {
+				pageLog('[Display] Switching to Display 3 (' + type + '=' + id + ')', 'info');
+				defaultArea.classList.add('d-none');
+				emptyArea.classList.add('d-none');
+				chatDetailArea.classList.remove('d-none');
+				chatTargetTitle.textContent = label;
+				if (window.SorsChat && typeof window.SorsChat.openConversation === 'function') {
+					window.SorsChat.openConversation(type, id).catch(function (e) {
+						pageLog('[Display] openConversation failed: ' + e.message, 'error');
+					});
+				}
+			}
+
+			toggleBtn.addEventListener('click', function () {
+				if (!defaultArea.classList.contains('d-none')) showDisplay2();
+				else showDisplay1();
+			});
+
+			chatBackBtn.addEventListener('click', showDisplay2);
+
+			// Single delegated click handler for all .list-item elements.
+			// In Display 2 -> open chat. In Display 1 -> start call / join room.
+			document.body.addEventListener('click', function (e) {
+				var item = e.target.closest('.list-item');
+				if (!item) return;
+				var type  = item.getAttribute('data-chat-type');
+				var id    = item.getAttribute('data-chat-id');
+				var label = item.getAttribute('data-chat-label') || id;
+				if (!type || !id) return;
+				e.preventDefault();
+
+				var isDisplay2Active = !emptyArea.classList.contains('d-none');
+				if (isDisplay2Active) {
+					showDisplay3(type, id, label);
+					return;
+				}
+
+				// Display 1 fallback behaviour
+				if (type === 'user' && typeof startCall === 'function') {
+					startCall(id);
+				} else if (type === 'room' && typeof joinRoom === 'function') {
+					joinRoom(Number(id));
+				}
+			});
+
+			// Expose for call.js if it needs to trigger a display change.
+			window.SorsShell = {
+				showDisplay1: showDisplay1,
+				showDisplay2: showDisplay2,
+				showDisplay3: showDisplay3
+			};
+		});
+	</script>
+
 	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" onload="pageLog('Bootstrap JS loaded')" onerror="pageLog('FAILED to load Bootstrap JS', 'error')"></script>
 	<script src="https://cdn.jsdelivr.net/npm/webrtc-adapter@9.0.6/out/adapter.js" onload="pageLog('webrtc-adapter loaded')" onerror="pageLog('FAILED to load webrtc-adapter', 'error')"></script>
+	<script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js" onload="pageLog('signalr loaded')" onerror="pageLog('FAILED to load signalr', 'error')"></script>
+	<script src="js/chat.js?ver=1.0" onload="pageLog('chat.js loaded')" onerror="pageLog('FAILED to load js/chat.js', 'error')"></script>
 	<script src="js/janus.js?ver=1.10" onload="pageLog('janus.js loaded')" onerror="pageLog('FAILED to load js/janus.js', 'error')"></script>
-	<script src="js/call.js?ver=1.10" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
+	<script src="js/call.js?ver=1.11" onerror="pageLog('FAILED to load js/call.js', 'error')"></script>
 	<script src="js/Sors.Notifications.js?ver=1.10" defer onerror="pageLog('FAILED to load js/Sors.Notifications.js', 'error')"></script>
-	
+
 </body>
 
 </html>
