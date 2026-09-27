@@ -308,3 +308,89 @@ main {
 .log-line.log-warn { color: #ffd166; }
 .log-line.log-error { color: #ff6b6b; }
 .log-line.log-debug { color: #888; }
+
+
+
+
+
+/* ---- Display 3 (Chat Area) ---- */
+#chatDetailArea {
+	display: flex;
+	flex-direction: column;
+}
+
+#chatBackBtn {
+	padding: 2px 8px;
+	line-height: 1;
+}
+
+#chatMessages {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	background: rgba(0, 0, 0, 0.25);
+	border-radius: 0.5rem;
+	padding: 12px;
+	max-height: 320px;
+	overflow-y: auto;
+}
+
+.chat-msg {
+	max-width: 75%;
+	padding: 8px 12px;
+	border-radius: 12px;
+	font-size: 0.875rem;
+	word-wrap: break-word;
+	white-space: pre-wrap;
+}
+
+/* Local sent message (Left-aligned) */
+.chat-msg.local {
+	align-self: flex-start;
+	text-align: left;
+	background-color: var(--brand-navy-light);
+	border: 1px solid rgba(255, 255, 255, 0.15);
+	color: #ffffff;
+	border-bottom-left-radius: 2px;
+}
+
+/* Remote received message (Right-aligned) */
+.chat-msg.remote {
+	align-self: flex-end;
+	text-align: right;
+	background-color: #198754;
+	color: #ffffff;
+	border-bottom-right-radius: 2px;
+}
+
+/* Sender label on remote messages */
+.chat-msg .sender-label {
+	font-size: 0.7rem;
+	opacity: 0.75;
+	display: block;
+	margin-bottom: 2px;
+}
+
+/* Display 2 Unread Badge */
+.unread-badge {
+	margin-left: auto;
+	font-size: 0.75rem;
+	padding: 0.25em 0.6em;
+	border-radius: 10px;
+}
+
+#chatInput {
+	resize: none;
+	max-height: 120px;
+	overflow-y: auto;
+}
+
+/* File attachment link inside a chat bubble */
+.chat-file-link {
+	color: #b3e5c3;
+	text-decoration: underline;
+	word-break: break-all;
+}
+.chat-msg.local .chat-file-link {
+	color: #cfe9ff;
+}
